@@ -7,17 +7,27 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header>
-    <h1>Pallet Tracker</h1>
-    <div id="metrics">
-      <div class="card">Total issued<br><span id="total-issued">0</span></div>
-      <div class="card">Total returned<br><span id="total-returned">0</span></div>
-      <div class="card">Net outstanding<br><span id="net-outstanding">0</span></div>
-      <div class="card">Customer count<br><span id="customer-count">0</span></div>
-    </div>
-  </header>
 
-  <main>
+    <div class="app-panel">
+      <div class="top-metrics">
+        <div class="card metric issued">Total issued<br><span id="total-issued">0</span></div>
+        <div class="card metric returned">Total returned<br><span id="total-returned">0</span></div>
+        <div class="card metric net">Net outstanding<br><span id="net-outstanding">0</span></div>
+        <div class="card metric customers">Customers<br><span id="customer-count">0</span></div>
+      </div>
+
+      <section id="entry" class="panel-section">
+        <div class="entry-header">
+          <div class="recording-as">
+            <label>Recording as</label>
+            <select id="staff-select" required>
+              <option value="">— select staff member —</option>
+            </select>
+            <small class="hint">Select a staff member before recording</small>
+          </div>
+        </div>
+        <h2 class="visually-hidden">Record Movement</h2>
+        <form id="movement-form" class="entry-form">
     <section id="entry">
       <h2>Record Movement</h2>
       <form id="movement-form">
@@ -61,6 +71,35 @@
           <button type="button" id="export-csv">Export CSV</button>
           <button type="button" id="undo-btn">Undo Last</button>
         </div>
+          </div>
+          </form>
+        </section>
+
+        <section id="log" class="panel-section">
+          <div class="tabs">
+            <button class="tab active">Movement log</button>
+            <button class="tab">Customer balances</button>
+          </div>
+          <div class="filters">
+            <select id="filter-customer"><option value="">All customers</option></select>
+            <select id="filter-type"><option value="">All types</option><option value="issue">Issue</option><option value="return">Return</option></select>
+            <select id="filter-staff"><option value="">All staff</option></select>
+          </div>
+          <table id="movements-table">
+            <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Qty</th><th>Staff</th><th>Note</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <section id="balances" class="panel-section">
+          <h3>Customer Balances</h3>
+          <table id="balances-table">
+            <thead><tr><th>Customer</th><th>Issued</th><th>Returned</th><th>Balance</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
       </form>
     </section>
 
