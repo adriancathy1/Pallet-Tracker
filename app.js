@@ -7,9 +7,18 @@
   const KEY_ACTIVE_STAFF = 'pallet-active-staff'
   const KEY_AUDIT = 'pallet-audit'
 
-  // Supabase placeholders (set your values in README or environment)
-  const SUPABASE_URL = ''
-  const SUPABASE_ANON_KEY = ''
+  // Supabase placeholders (config.js sets window.supabaseConfig during build)
+  const SUPABASE_URL = (window.supabaseConfig && window.supabaseConfig.url) || ''
+  const SUPABASE_ANON_KEY = (window.supabaseConfig && window.supabaseConfig.key) || ''
+  let supabaseClient = null
+
+  function initSupabaseClient(){
+    if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return null
+    if(typeof supabase !== 'undefined' && supabase && !supabaseClient){
+      supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    }
+    return supabaseClient
+  }
 
   // In-memory state
   let movements = []
@@ -42,6 +51,10 @@
     readLS()
     bindEvents()
     renderAll()
+    // initialize supabase client and attempt initial pull
+    if(initSupabaseClient()){
+      pullAllFromSupabase().catch(err=>console.warn('Supabase pull failed', err))
+    }
   })
 
   function bindEvents(){
@@ -84,6 +97,10 @@
     $('new-staff-name').value = ''
     writeLS()
     renderAll()
+    // push to supabase
+    if(initSupabaseClient()){
+      supabaseClient.from('staff').upsert({name}).then(()=>{}).catch(()=>{})
+    }
   }
 
   // Customers
@@ -109,6 +126,12 @@
     movements.forEach(m=>{ if(m.customer.toLowerCase()===current.toLowerCase()) m.customer=newName })
     audit.push({op:'edit-customer', at:new Date().toISOString(), before:current, after:newName})
     writeLS(); renderAll()
+    // push customer update and movement updates to supabase
+    if(initSupabaseClient()){
+      supabaseClient.from('customers').upsert({name:newName}).then(()=>{})
+      // update movements where customer == current
+      supabaseClient.from('movements').update({customer:newName}).eq('customer', current).then(()=>{})
+    }
   }
 
   // Metrics & balances
@@ -185,6 +208,10 @@
     movements.splice(idx,1)
     audit.push({op:'delete', at:new Date().toISOString(), id, before})
     writeLS(); renderAll()
+    if(initSupabaseClient()){
+      supabaseClient.from('movements').delete().eq('id', id).then(()=>{})
+      supabaseClient.from('audit').insert([{op:'delete', obj_id:id, payload:before, at:new Date().toISOString()}]).then(()=>{})
+    }
   }
 
   function onSubmit(e){
@@ -215,12 +242,24 @@
       audit.push({op:'edit', at:new Date().toISOString(), id:editingId, before, after:JSON.parse(JSON.stringify(movements[idx]))})
       editingId = null
       $('submit-btn').textContent = 'Record'
+      // push edit to supabase
+      if(initSupabaseClient()){
+        const rec = movements[idx]
+        supabaseClient.from('movements').upsert({id:rec.id, date:rec.date, recorded_at:rec.recordedAt, edited_at:rec.editedAt, customer:rec.customer, type:rec.type, qty:rec.qty, staff:rec.staff, note:rec.note}).then(()=>{})
+        supabaseClient.from('audit').insert([{op:'edit', obj_id:editingId, payload:{before,after:movements[idx]}, at:new Date().toISOString()}]).then(()=>{})
+      }
     } else {
       const id = Date.now()
       const rec = {id, date, recordedAt:new Date().toISOString(), editedAt:null, customer, type, qty, staff:staffName, note}
       movements.push(rec)
       if(!customers.some(c=>c.toLowerCase()===customer.toLowerCase())) customers.push(customer)
       audit.push({op:'create', at:new Date().toISOString(), id, after:JSON.parse(JSON.stringify(rec))})
+      // push create to supabase
+      if(initSupabaseClient()){
+        supabaseClient.from('movements').insert([{id:rec.id, date:rec.date, recorded_at:rec.recordedAt, edited_at:rec.editedAt, customer:rec.customer, type:rec.type, qty:rec.qty, staff:rec.staff, note:rec.note}]).then(()=>{})
+        supabaseClient.from('customers').upsert([{name:rec.customer}]).then(()=>{})
+        supabaseClient.from('audit').insert([{op:'create', obj_id:rec.id, payload:{after:rec}, at:new Date().toISOString()}]).then(()=>{})
+      }
     }
 
     writeLS(); renderAll()
@@ -267,6 +306,47 @@
       movements.forEach(m=>{ if(m.customer===after) m.customer=before })
     }
     writeLS(); renderAll()
+  }
+
+  // Pull data from Supabase and merge into local state
+  async function pullAllFromSupabase(){
+    if(!initSupabaseClient()) return
+    try{
+      const {data:staffData, error:staffErr} = await supabaseClient.from('staff').select('name')
+      if(!staffErr && Array.isArray(staffData)){
+        const names = staffData.map(s=>s.name)
+        staff = Array.from(new Set([...staff, ...names]))
+      }
+
+      const {data:customersData, error:customersErr} = await supabaseClient.from('customers').select('name')
+      if(!customersErr && Array.isArray(customersData)){
+        const names = customersData.map(c=>c.name)
+        customers = Array.from(new Set([...customers, ...names]))
+      }
+
+      const {data:movData, error:movErr} = await supabaseClient.from('movements').select('*')
+      if(!movErr && Array.isArray(movData)){
+        movData.forEach(r=>{
+          const local = movements.find(m=>m.id===r.id)
+          const remoteEdited = r.edited_at || r.recorded_at
+          if(!local){
+            movements.push({
+              id: Number(r.id), date: r.date, recordedAt: r.recorded_at, editedAt: r.edited_at || null,
+              customer: r.customer, type: r.type, qty: Number(r.qty), staff: r.staff, note: r.note || ''
+            })
+          } else {
+            const localEdited = local.editedAt || local.recordedAt
+            if(new Date(remoteEdited) > new Date(localEdited)){
+              local.date = r.date; local.recordedAt = r.recorded_at; local.editedAt = r.edited_at || null; local.customer = r.customer; local.type = r.type; local.qty = Number(r.qty); local.staff = r.staff; local.note = r.note || ''
+            }
+          }
+        })
+      }
+
+      writeLS(); renderAll()
+    }catch(err){
+      console.warn('pullAllFromSupabase error', err)
+    }
   }
 
   // Utilities
