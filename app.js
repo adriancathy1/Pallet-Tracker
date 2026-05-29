@@ -1,363 +1,999 @@
-// Pallet Tracker - vanilla JS implementation (localStorage + Supabase placeholders)
-(function(){
-  // Local storage keys
-  const KEY_MOVEMENTS = 'pallet-movements'
-  const KEY_STAFF = 'pallet-staff'
-  const KEY_CUSTOMERS = 'pallet-customers'
-  const KEY_ACTIVE_STAFF = 'pallet-active-staff'
-  const KEY_AUDIT = 'pallet-audit'
-
-  // Supabase placeholders (config.js sets window.supabaseConfig during build)
+// Pallet Tracker - vanilla JS SPA implementation
+(function() {
+  // Configuration
   const SUPABASE_URL = (window.supabaseConfig && window.supabaseConfig.url) || ''
   const SUPABASE_ANON_KEY = (window.supabaseConfig && window.supabaseConfig.key) || ''
   let supabaseClient = null
 
-  function initSupabaseClient(){
-    if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return null
-    if(typeof supabase !== 'undefined' && supabase && !supabaseClient){
+  // In-memory application state
+  let movements = []
+  let staff = []
+  let customers = []
+  let activeSession = null
+  let isAuthenticated = false
+  let selectedStaffName = ''
+  let editingId = null
+
+  // Page Routing Configuration
+  const routes = {
+    '#/dashboard': 'page-dashboard',
+    '#/log-movement': 'page-log-movement',
+    '#/movements': 'page-movements',
+    '#/balances': 'page-balances',
+    '#/staff': 'page-staff'
+  }
+
+  // --- INITIALIZATION ---
+  document.addEventListener('DOMContentLoaded', () => {
+    // Set movement date default to today
+    const today = new Date().toISOString().slice(0, 10)
+    document.getElementById('date').value = today
+
+    bindEvents()
+
+    // Initialize Supabase Client
+    if (!initSupabaseClient()) {
+      showConnectionError('Supabase Configuration Error: URL and Anon Key must be configured. Check your env variables and build the app.')
+      return
+    }
+
+    // --- DIAGNOSTIC RAW FETCH TEST ---
+    console.log('[Diagnostics] Supabase URL:', SUPABASE_URL ? SUPABASE_URL.substring(0, 15) + '...' : 'EMPTY');
+    console.log('[Diagnostics] Supabase Anon Key length:', SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY.length : 0);
+    
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      console.log('[Diagnostics] Performing raw fetch test to bypass Supabase library...');
+      fetch(SUPABASE_URL + '/rest/v1/allowed_users?select=email', {
+        headers: { 'apikey': SUPABASE_ANON_KEY }
+      })
+      .then(res => {
+        console.log('[Diagnostics] Raw fetch response status:', res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log('[Diagnostics] Raw fetch successful! Data:', data);
+      })
+      .catch(err => {
+        console.error('[Diagnostics] Raw fetch failed:', err);
+      });
+    }
+    // ---------------------------------
+
+    // Handle authentication state changes
+    supabaseClient.auth.onAuthStateChange(handleAuthStateChange)
+  })
+
+  function initSupabaseClient() {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null
+    if (typeof supabase !== 'undefined' && supabase && !supabaseClient) {
       supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     }
     return supabaseClient
   }
 
-  // In-memory state
-  let movements = []
-  let staff = []
-  let customers = []
-  let audit = []
-  let editingId = null
-
-  // Helpers
-  const $ = id => document.getElementById(id)
-  function readLS(){
-    movements = JSON.parse(localStorage.getItem(KEY_MOVEMENTS) || '[]')
-    staff = JSON.parse(localStorage.getItem(KEY_STAFF) || '[]')
-    customers = JSON.parse(localStorage.getItem(KEY_CUSTOMERS) || '[]')
-    audit = JSON.parse(localStorage.getItem(KEY_AUDIT) || '[]')
-  }
-  function writeLS(){
-    localStorage.setItem(KEY_MOVEMENTS, JSON.stringify(movements))
-    localStorage.setItem(KEY_STAFF, JSON.stringify(staff))
-    localStorage.setItem(KEY_CUSTOMERS, JSON.stringify(customers))
-    localStorage.setItem(KEY_AUDIT, JSON.stringify(audit))
-  }
-
-  // Init
-  document.addEventListener('DOMContentLoaded', ()=>{
-    // default date
-    const today = new Date().toISOString().slice(0,10)
-    $('date').value = today
-
-    readLS()
-    bindEvents()
-    renderAll()
-    // initialize supabase client and attempt initial pull
-    if(initSupabaseClient()){
-      pullAllFromSupabase().catch(err=>console.warn('Supabase pull failed', err))
-    }
-  })
-
-  function bindEvents(){
-    $('movement-form').addEventListener('submit', onSubmit)
-    $('add-staff').addEventListener('click', onAddStaff)
-    $('export-csv').addEventListener('click', onExportCSV)
-    $('undo-btn').addEventListener('click', onUndo)
-    $('filter-customer').addEventListener('change', renderMovementsTable)
-    $('filter-type').addEventListener('change', renderMovementsTable)
-    $('filter-staff').addEventListener('change', renderMovementsTable)
-    $('edit-customer').addEventListener('click', onEditCustomer)
-  }
-
-  function renderAll(){
-    renderStaff()
-    renderCustomers()
-    renderMetrics()
-    renderMovementsTable()
-    renderBalances()
-  }
-
-  // Staff management
-  function renderStaff(){
-    const sel = $('staff-select')
-    const fstaff = $('filter-staff')
-    sel.innerHTML = ''
-    fstaff.innerHTML = '<option value="">All staff</option>'
-    staff.forEach(s=>{
-      const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o)
-      const o2 = document.createElement('option'); o2.value = s; o2.textContent = s; fstaff.appendChild(o2)
-    })
-    // ensure an active staff exists
-    if(!sel.value && staff.length) sel.value = staff[0]
-  }
-  function onAddStaff(){
-    const name = $('new-staff-name').value.trim()
-    if(!name) return alert('Enter a staff name')
-    if(staff.some(s=>s.toLowerCase()===name.toLowerCase())) return alert('Duplicate staff name')
-    staff.push(name)
-    $('new-staff-name').value = ''
-    writeLS()
-    renderAll()
-    // push to supabase
-    if(initSupabaseClient()){
-      supabaseClient.from('staff').upsert({name}).then(()=>{}).catch(()=>{})
-    }
-  }
-
-  // Customers
-  function renderCustomers(){
-    const datalist = $('customers-list')
-    const f = $('filter-customer')
-    datalist.innerHTML = ''
-    f.innerHTML = '<option value="">All customers</option>'
-    customers.forEach(c=>{
-      const opt = document.createElement('option'); opt.value = c; datalist.appendChild(opt)
-      const opt2 = document.createElement('option'); opt2.value = c; opt2.textContent = c; f.appendChild(opt2)
+  // --- VIEW TRANSITIONS & ROUTER ---
+  function showView(viewId) {
+    const views = ['view-loading', 'view-error', 'view-login', 'view-app']
+    views.forEach(v => {
+      const el = document.getElementById(v)
+      if (v === viewId) {
+        el.classList.remove('hidden')
+      } else {
+        el.classList.add('hidden')
+      }
     })
   }
-  function onEditCustomer(){
-    const current = $('customer').value.trim()
-    if(!current) return alert('Choose a customer in the field first')
-    const newName = prompt('Edit customer name', current)
-    if(!newName) return
-    // replace in customers array and in existing movement records
-    const idx = customers.findIndex(c=>c.toLowerCase()===current.toLowerCase())
-    if(idx!==-1 && customers.some((c,i)=>i!==idx && c.toLowerCase()===newName.toLowerCase())) return alert('Duplicate customer name')
-    if(idx!==-1) customers[idx]=newName
-    movements.forEach(m=>{ if(m.customer.toLowerCase()===current.toLowerCase()) m.customer=newName })
-    audit.push({op:'edit-customer', at:new Date().toISOString(), before:current, after:newName})
-    writeLS(); renderAll()
-    // push customer update and movement updates to supabase
-    if(initSupabaseClient()){
-      supabaseClient.from('customers').upsert({name:newName}).then(()=>{})
-      // update movements where customer == current
-      supabaseClient.from('movements').update({customer:newName}).eq('customer', current).then(()=>{})
+
+  function handleRouting() {
+    const hash = window.location.hash || '#/dashboard'
+
+    if (!isAuthenticated) {
+      showView('view-login')
+      return
+    }
+
+    showView('view-app')
+
+    const pageId = routes[hash] || 'page-dashboard'
+
+    // Update Sidebar navigation active classes
+    document.querySelectorAll('.nav-item').forEach(item => {
+      if (item.getAttribute('href') === hash) {
+        item.classList.add('active')
+      } else {
+        item.classList.remove('active')
+      }
+    })
+
+    // Display active page block, hide others
+    document.querySelectorAll('.app-page').forEach(page => {
+      if (page.id === pageId) {
+        page.classList.remove('hidden')
+      } else {
+        page.classList.add('hidden')
+      }
+    })
+
+    // Set page header title
+    const titles = {
+      '#/dashboard': 'Dashboard',
+      '#/log-movement': editingId ? 'Edit Movement' : 'Record Movement',
+      '#/movements': 'Movements Log',
+      '#/balances': 'Customer Balances',
+      '#/staff': 'Staff Members'
+    }
+    document.getElementById('page-title').textContent = titles[hash] || 'Dashboard'
+
+    // Trigger page-specific renders
+    if (hash === '#/dashboard') {
+      renderDashboard()
+    } else if (hash === '#/movements') {
+      renderMovementsTable()
+    } else if (hash === '#/balances') {
+      renderBalancesTable()
+    } else if (hash === '#/staff') {
+      renderStaffTable()
     }
   }
 
-  // Metrics & balances
-  function calculateCustomerTotals(){
+  // Loader Controls
+  function showLoader(message = 'Loading data...') {
+    document.querySelector('.loader-text').textContent = message
+    document.getElementById('view-loading').classList.remove('hidden')
+  }
+
+  function hideLoader() {
+    document.getElementById('view-loading').classList.add('hidden')
+  }
+
+  function showConnectionError(msg) {
+    document.getElementById('error-message').textContent = msg
+    showView('view-error')
+  }
+
+  // --- AUTHENTICATION FLOWS ---
+  let isVerifying = false;
+  let lastCheckedEmail = '';
+
+  function handleAuthStateChange(event, session) {
+    console.log(`[Auth Event] Triggered with event: "${event}", session present:`, !!session);
+    // Defer the verification to the next tick of the event loop to release the SDK's auth state lock
+    setTimeout(async () => {
+      await processAuthStateChange(event, session);
+    }, 0);
+  }
+
+  async function processAuthStateChange(event, session) {
+    const email = session && session.user && session.user.email;
+
+    // If there is no user session
+    if (!session || !session.user) {
+      console.log('[Auth Event] No active user session. Routing to login.');
+      isAuthenticated = false;
+      activeSession = null;
+      isVerifying = false;
+      lastCheckedEmail = '';
+      showView('view-login');
+      window.location.hash = '#/login';
+      hideLoader();
+      return;
+    }
+
+    // Deduplicate: If we are already running verification for this exact email, ignore this event
+    if (isVerifying && lastCheckedEmail === email) {
+      console.log(`[Auth Event] Ignoring duplicate event for "${email}" (already verifying).`);
+      return;
+    }
+
+    activeSession = session;
+    isVerifying = true;
+    lastCheckedEmail = email;
+
+    console.log(`[Auth Event] Starting verification process for user: "${email}"`);
+
+    try {
+      showLoader('Verifying account access...');
+      const isAllowed = await checkWhitelist(email);
+      console.log(`[Auth Event] Whitelist check result for "${email}":`, isAllowed);
+
+      if (isAllowed) {
+        isAuthenticated = true;
+        try {
+          console.log(`[Auth Event] Whitelist verified for "${email}". Syncing app database...`);
+          await loadDataFromDB();
+          document.getElementById('auth-alert').classList.add('hidden');
+          
+          const currentHash = window.location.hash;
+          console.log(`[Auth Event] Database synced. Current page hash: "${currentHash}"`);
+          if (!currentHash || currentHash === '#/login' || currentHash === '') {
+            window.location.hash = '#/dashboard';
+          } else {
+            handleRouting();
+          }
+        } catch (err) {
+          console.error('[Auth Event] Failed to load data after successful login:', err);
+        }
+      } else {
+        console.warn(`[Auth Event] Access denied: "${email}" is not in the allowed_users table.`);
+        isAuthenticated = false;
+        
+        console.log('[Auth Event] Attempting to sign out unwhitelisted user session...');
+        try {
+          await supabaseClient.auth.signOut();
+          console.log('[Auth Event] Unwhitelisted session signed out successfully.');
+        } catch (signOutErr) {
+          console.warn('[Auth Event] Error signing out unwhitelisted session:', signOutErr);
+        }
+
+        const alertEl = document.getElementById('auth-alert');
+        alertEl.className = 'alert alert-danger';
+        alertEl.textContent = `Access Denied: ${email} is not authorized to access this website.`;
+        alertEl.classList.remove('hidden');
+        showView('view-login');
+        window.location.hash = '#/login';
+
+        // Reset verification lock since verification is finished (denied)
+        isVerifying = false;
+        lastCheckedEmail = '';
+      }
+    } catch (err) {
+      console.error('[Auth Event] Uncaught error during auth state verification:', err);
+      const alertEl = document.getElementById('auth-alert');
+      if (alertEl) {
+        alertEl.className = 'alert alert-danger';
+        alertEl.textContent = 'Verification Error: ' + (err.message || 'An error occurred during account verification.');
+        alertEl.classList.remove('hidden');
+      }
+      showView('view-login');
+      window.location.hash = '#/login';
+      
+      // Reset lock
+      isVerifying = false;
+      lastCheckedEmail = '';
+    } finally {
+      console.log('[Auth Event] Hiding loading overlay.');
+      hideLoader();
+    }
+  }
+
+  async function checkWhitelist(email) {
+    console.log(`[checkWhitelist] Initiating whitelist check for: "${email}"`);
+    try {
+      console.log('[checkWhitelist] Querying allowed_users table...');
+      const queryPromise = supabaseClient
+        .from('allowed_users')
+        .select('email')
+        .eq('email', email.toLowerCase());
+
+      console.log('[checkWhitelist] Awaiting Supabase promise resolution...');
+      const { data, error } = await queryPromise;
+      
+      console.log('[checkWhitelist] Query finished. Data:', data, 'Error:', error);
+
+      if (error) {
+        console.error('[checkWhitelist] Database error verifying whitelist:', error);
+        if (error.code === '42P01') {
+          alert("The whitelist table 'allowed_users' does not exist in your Supabase database. Please create it first.");
+        }
+        return false;
+      }
+      
+      const isAllowed = data && data.length > 0;
+      console.log(`[checkWhitelist] User "${email}" allowed status:`, isAllowed);
+      return isAllowed;
+    } catch (err) {
+      console.error('[checkWhitelist] Failed to check email whitelist due to uncaught exception:', err);
+      return false;
+    }
+  }
+
+  async function onLoginSubmit(e) {
+    e.preventDefault()
+    const email = document.getElementById('login-email').value.trim()
+    const password = document.getElementById('login-password').value
+    const alertEl = document.getElementById('auth-alert')
+    alertEl.classList.add('hidden')
+
+    showLoader('Signing in...')
+    try {
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password })
+      if (error) throw error
+    } catch (error) {
+      console.error('Login error:', error)
+      alertEl.className = 'alert alert-danger'
+      alertEl.textContent = 'Login Failed: ' + (error.message || 'Verify your credentials.')
+      alertEl.classList.remove('hidden')
+      hideLoader()
+    }
+  }
+
+  async function onSignupSubmit(e) {
+    e.preventDefault()
+    const email = document.getElementById('signup-email').value.trim()
+    const password = document.getElementById('signup-password').value
+    const alertEl = document.getElementById('auth-alert')
+    alertEl.classList.add('hidden')
+
+    showLoader('Creating account...')
+    try {
+      const { error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      })
+      if (error) throw error
+
+      document.getElementById('signup-form').classList.add('hidden')
+      document.getElementById('confirm-email-msg').classList.remove('hidden')
+    } catch (error) {
+      console.error('Registration error:', error)
+      alertEl.className = 'alert alert-danger'
+      alertEl.textContent = 'Registration Failed: ' + (error.message || 'Unknown signup error.')
+      alertEl.classList.remove('hidden')
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onLogoutClick() {
+    showLoader('Signing out...')
+    try {
+      await supabaseClient.auth.signOut()
+    } catch (error) {
+      console.error('Sign out error:', error)
+    } finally {
+      hideLoader()
+    }
+  }
+
+  // --- DATABASE-ONLY SYNCHRONIZATION ---
+  async function loadDataFromDB() {
+    if (!supabaseClient) return
+    showLoader('Syncing with database...')
+    try {
+      // 1. Fetch staff roster
+      const { data: staffData, error: staffErr } = await supabaseClient
+        .from('staff')
+        .select('*')
+        .order('name', { ascending: true })
+      if (staffErr) throw staffErr
+      staff = staffData || []
+
+      // 2. Fetch customers directory
+      const { data: customersData, error: customersErr } = await supabaseClient
+        .from('customers')
+        .select('*')
+        .order('name', { ascending: true })
+      if (customersErr) throw customersErr
+      customers = customersData || []
+
+      // 3. Fetch movements chronological
+      const { data: movementsData, error: movementsErr } = await supabaseClient
+        .from('movements')
+        .select('*')
+        .order('recorded_at', { ascending: false })
+      if (movementsErr) throw movementsErr
+      movements = movementsData || []
+
+      // Update inputs & selects
+      populateStaffSelect()
+      populateFilters()
+      populateCustomerDatalist()
+      
+      // Match active logged in operator
+      matchActiveStaff()
+
+      document.getElementById('view-error').classList.add('hidden')
+    } catch (error) {
+      console.error('Database sync failed:', error)
+      showConnectionError('Database Connection Failed: ' + (error.message || 'Make sure you are online.'))
+      throw error
+    } finally {
+      hideLoader()
+    }
+  }
+
+  // Match logged in user's email with staff list to set active operator
+  function matchActiveStaff() {
+    if (!activeSession || !activeSession.user) return
+    const userEmail = activeSession.user.email
+
+    const matched = staff.find(s => s.email && s.email.toLowerCase() === userEmail.toLowerCase())
+    
+    document.getElementById('user-email').textContent = userEmail
+    const profileRoleEl = document.getElementById('user-staff-name')
+    const staffSelectEl = document.getElementById('staff-select')
+
+    if (matched) {
+      selectedStaffName = matched.name
+      profileRoleEl.textContent = `Operator: ${matched.name}`
+      staffSelectEl.value = matched.name
+    } else {
+      profileRoleEl.textContent = 'No linked staff profile'
+      // Clear select if no current selection
+      if (!selectedStaffName) {
+        staffSelectEl.value = ''
+      }
+    }
+  }
+
+  // --- MUTATION HANDLERS ---
+  async function onAddStaff(e) {
+    e.preventDefault()
+    const name = document.getElementById('new-staff-name').value.trim()
+    const email = document.getElementById('new-staff-email').value.trim()
+
+    if (!name) return alert('Enter a staff name')
+
+    showLoader('Registering staff member in DB...')
+    try {
+      const { error } = await supabaseClient
+        .from('staff')
+        .insert({ name, email: email || null })
+      
+      if (error) throw error
+
+      document.getElementById('staff-form').reset()
+      
+      // Database reload verification
+      await loadDataFromDB()
+      handleRouting()
+    } catch (error) {
+      console.error('Add staff failed:', error)
+      alert('Failed to register staff: ' + (error.message || 'Duplicate staff name or email.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onRemoveStaff(id, name) {
+    if (!confirm(`Are you sure you want to remove staff member "${name}"? Existing movements recorded under this operator will remain, but they will be removed from future selection options.`)) return
+
+    showLoader('Removing staff member from DB...')
+    try {
+      const { error } = await supabaseClient
+        .from('staff')
+        .delete()
+        .eq('id', id)
+      
+      if (error) throw error
+
+      // Database reload verification
+      await loadDataFromDB()
+      renderStaffTable()
+    } catch (error) {
+      console.error('Delete staff failed:', error)
+      alert('Failed to remove staff: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onSubmitMovement(e) {
+    e.preventDefault()
+
+    const type = document.querySelector('input[name="type"]:checked').value
+    const customerName = document.getElementById('customer').value.trim()
+    const qty = parseInt(document.getElementById('qty').value, 10)
+    const date = document.getElementById('date').value
+    const note = document.getElementById('note').value.trim()
+
+    if (!selectedStaffName) {
+      return alert('An active operator must be selected from the dropdown in the header to attribute this record.')
+    }
+    if (!customerName) return alert('Customer name is required')
+    if (isNaN(qty) || qty < 1) return alert('Quantity must be a positive integer')
+
+    // Enforce balance checking to prevent negative balances
+    if (type === 'return') {
+      const currentBalance = calculateCustomerBalance(customerName)
+      if (qty > currentBalance) {
+        return alert(`Return quantity exceeds current outstanding balance (${currentBalance}). Transaction blocked.`)
+      }
+    }
+
+    showLoader(editingId ? 'Saving updates to DB...' : 'Writing record to DB...')
+    try {
+      // 1. Add customer directory entry if new
+      const customerExists = customers.some(c => c.name.toLowerCase() === customerName.toLowerCase())
+      if (!customerExists) {
+        const { error: custErr } = await supabaseClient
+          .from('customers')
+          .insert({ name: customerName })
+        if (custErr) console.warn('Customer upsert non-critical warning:', custErr)
+      }
+
+      // 2. Perform DB insert or update
+      if (editingId) {
+        const { error } = await supabaseClient
+          .from('movements')
+          .update({
+            date,
+            customer: customerName,
+            type,
+            qty,
+            note: note || null,
+            staff: selectedStaffName,
+            edited_at: new Date().toISOString()
+          })
+          .eq('id', editingId)
+        if (error) throw error
+      } else {
+        const { error } = await supabaseClient
+          .from('movements')
+          .insert({
+            date,
+            recorded_at: new Date().toISOString(),
+            customer: customerName,
+            type,
+            qty,
+            staff: selectedStaffName,
+            note: note || null
+          })
+        if (error) throw error
+      }
+
+      // Reset form controls
+      document.getElementById('movement-form').reset()
+      document.getElementById('date').value = new Date().toISOString().slice(0, 10)
+      editingId = null
+      document.getElementById('submit-btn').textContent = 'Record Movement'
+      document.getElementById('form-heading').textContent = 'Record Pallet Movement'
+      document.getElementById('cancel-edit-btn').classList.add('hidden')
+
+      // Reload state from database
+      await loadDataFromDB()
+      window.location.hash = '#/movements'
+    } catch (error) {
+      console.error('Movement submit failed:', error)
+      alert('Failed to log movement: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onDeleteMovement(id) {
+    if (!confirm('Permanently delete this pallet movement record from the database? This is irreversible.')) return
+
+    showLoader('Deleting record from DB...')
+    try {
+      const { error } = await supabaseClient
+        .from('movements')
+        .delete()
+        .eq('id', id)
+      
+      if (error) throw error
+
+      // Reload state from database
+      await loadDataFromDB()
+      renderMovementsTable()
+    } catch (error) {
+      console.error('Delete movement failed:', error)
+      alert('Failed to delete movement record: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  function startEditMovement(m) {
+    editingId = m.id
+    document.getElementById('customer').value = m.customer
+    document.getElementById('qty').value = m.qty
+    document.getElementById('date').value = m.date
+    document.getElementById('note').value = m.note || ''
+
+    document.querySelectorAll('input[name="type"]').forEach(r => {
+      r.checked = r.value === m.type
+    })
+
+    document.getElementById('submit-btn').textContent = 'Update Movement'
+    document.getElementById('form-heading').textContent = 'Edit Pallet Movement'
+    document.getElementById('cancel-edit-btn').classList.remove('hidden')
+
+    window.location.hash = '#/log-movement'
+  }
+
+  function cancelEdit() {
+    editingId = null
+    document.getElementById('movement-form').reset()
+    document.getElementById('date').value = new Date().toISOString().slice(0, 10)
+    document.getElementById('submit-btn').textContent = 'Record Movement'
+    document.getElementById('form-heading').textContent = 'Record Pallet Movement'
+    document.getElementById('cancel-edit-btn').classList.add('hidden')
+    window.location.hash = '#/movements'
+  }
+
+  // --- CALCULATIONS ---
+  function calculateCustomerTotals() {
     const map = {}
-    movements.forEach(m=>{
-      if(!map[m.customer]) map[m.customer]={issued:0,returned:0}
-      if(m.type==='issue') map[m.customer].issued += m.qty
-      else map[m.customer].returned += m.qty
+    movements.forEach(m => {
+      if (!map[m.customer]) map[m.customer] = { issued: 0, returned: 0 }
+      if (m.type === 'issue') {
+        map[m.customer].issued += m.qty
+      } else {
+        map[m.customer].returned += m.qty
+      }
     })
     return map
   }
-  function renderMetrics(){
+
+  function calculateCustomerBalance(customerName) {
     const totals = calculateCustomerTotals()
-    let totalIssued=0, totalReturned=0
-    Object.values(totals).forEach(t=>{ totalIssued+=t.issued; totalReturned+=t.returned })
-    $('total-issued').textContent = totalIssued
-    $('total-returned').textContent = totalReturned
-    $('net-outstanding').textContent = totalIssued - totalReturned
-    $('customer-count').textContent = Object.keys(totals).length
-  }
-  function renderBalances(){
-    const tbody = $('balances-table').querySelector('tbody'); tbody.innerHTML=''
-    const totals = calculateCustomerTotals()
-    const rows = Object.entries(totals).map(([customer,t])=>({customer,issued:t.issued,returned:t.returned,balance:t.issued-t.returned}))
-    rows.sort((a,b)=>b.balance - a.balance || a.customer.localeCompare(b.customer))
-    rows.forEach(r=>{
-      const tr = document.createElement('tr')
-      tr.innerHTML = `<td>${r.customer}</td><td>${r.issued}</td><td>${r.returned}</td><td>${r.balance}</td>`
-      tbody.appendChild(tr)
-    })
+    const c = totals[customerName]
+    return c ? c.issued - c.returned : 0
   }
 
-  // Movements table
-  function renderMovementsTable(){
-    const tbody = $('movements-table').querySelector('tbody'); tbody.innerHTML=''
-    const filterCustomer = $('filter-customer').value
-    const filterType = $('filter-type').value
-    const filterStaff = $('filter-staff').value
-    // reverse-chronological
-    const list = movements.slice().sort((a,b)=>b.id - a.id).filter(m=>{
-      if(filterCustomer && m.customer!==filterCustomer) return false
-      if(filterType && m.type!==filterType) return false
-      if(filterStaff && m.staff!==filterStaff) return false
+  // --- UI RENDER OPERATIONS ---
+  function renderDashboard() {
+    const totals = calculateCustomerTotals()
+    let totalIssued = 0
+    let totalReturned = 0
+    
+    Object.values(totals).forEach(t => {
+      totalIssued += t.issued
+      totalReturned += t.returned
+    })
+
+    document.getElementById('total-issued').textContent = totalIssued
+    document.getElementById('total-returned').textContent = totalReturned
+    document.getElementById('net-outstanding').textContent = totalIssued - totalReturned
+    document.getElementById('customer-count').textContent = Object.keys(totals).length
+
+    // Render Recent Movements Log list (top 5)
+    const recentTbody = document.querySelector('#recent-movements-table tbody')
+    recentTbody.innerHTML = ''
+    const recentMovements = movements.slice(0, 5)
+
+    if (recentMovements.length === 0) {
+      recentTbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No movements on record.</td></tr>`
+    } else {
+      recentMovements.forEach(m => {
+        const tr = document.createElement('tr')
+        const badge = m.type === 'issue' ? '<span class="badge badge-issue">Issue</span>' : '<span class="badge badge-return">Return</span>'
+        tr.innerHTML = `
+          <td>${m.date}</td>
+          <td>${escapeHtml(m.customer)}</td>
+          <td>${badge}</td>
+          <td>${m.qty}</td>
+          <td>${escapeHtml(m.staff)}</td>
+        `
+        recentTbody.appendChild(tr)
+      })
+    }
+
+    // Render Outstanding Balances list (top 5)
+    const topBalancesTbody = document.querySelector('#top-balances-table tbody')
+    topBalancesTbody.innerHTML = ''
+    const sortedBalances = Object.entries(totals)
+      .map(([customer, t]) => ({ customer, balance: t.issued - t.returned }))
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 5)
+
+    if (sortedBalances.length === 0) {
+      topBalancesTbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">No customers tracked.</td></tr>`
+    } else {
+      sortedBalances.forEach(item => {
+        const tr = document.createElement('tr')
+        const balanceClass = item.balance > 0 ? 'balance-positive' : (item.balance < 0 ? 'balance-negative' : 'balance-zero')
+        tr.innerHTML = `
+          <td>${escapeHtml(item.customer)}</td>
+          <td class="${balanceClass}">${item.balance}</td>
+        `
+        topBalancesTbody.appendChild(tr)
+      })
+    }
+  }
+
+  function renderMovementsTable() {
+    const tbody = document.querySelector('#movements-table tbody')
+    tbody.innerHTML = ''
+
+    const filterCustomer = document.getElementById('filter-customer').value
+    const filterType = document.getElementById('filter-type').value
+    const filterStaff = document.getElementById('filter-staff').value
+
+    const filtered = movements.filter(m => {
+      if (filterCustomer && m.customer !== filterCustomer) return false
+      if (filterType && m.type !== filterType) return false
+      if (filterStaff && m.staff !== filterStaff) return false
       return true
     })
-    list.forEach(m=>{
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No movements match selected filters.</td></tr>`
+      return
+    }
+
+    filtered.forEach(m => {
       const tr = document.createElement('tr')
-      tr.innerHTML = `<td>${m.date}${m.editedAt? ' ✎':''}</td><td>${escapeHtml(m.customer)}</td><td>${m.type}</td><td>${m.qty}</td><td>${escapeHtml(m.staff)}</td><td>${escapeHtml(m.note||'')}</td><td></td>`
-      const actions = tr.querySelector('td:last-child')
-      const editBtn = document.createElement('button'); editBtn.textContent='Edit'; editBtn.addEventListener('click', ()=>startEdit(m.id))
-      const delBtn = document.createElement('button'); delBtn.textContent='Delete'; delBtn.addEventListener('click', ()=>deleteMovement(m.id))
-      actions.appendChild(editBtn); actions.appendChild(delBtn)
+      const badge = m.type === 'issue' ? '<span class="badge badge-issue">Issue</span>' : '<span class="badge badge-return">Return</span>'
+      const editIndicator = m.edited_at ? `<span class="edit-indicator" title="Edited on ${new Date(m.edited_at).toLocaleString()}">✎</span>` : ''
+
+      tr.innerHTML = `
+        <td>${m.date}${editIndicator}</td>
+        <td>${escapeHtml(m.customer)}</td>
+        <td>${badge}</td>
+        <td>${m.qty}</td>
+        <td>${escapeHtml(m.staff)}</td>
+        <td>${escapeHtml(m.note || '')}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn secondary-btn edit-btn">Edit</button>
+            <button class="btn logout-btn delete-btn">Delete</button>
+          </div>
+        </td>
+      `
+      
+      tr.querySelector('.edit-btn').addEventListener('click', () => startEditMovement(m))
+      tr.querySelector('.delete-btn').addEventListener('click', () => onDeleteMovement(m.id))
+      
       tbody.appendChild(tr)
     })
   }
 
-  function startEdit(id){
-    const m = movements.find(x=>x.id===id); if(!m) return
-    editingId = id
-    $('customer').value = m.customer
-    $('qty').value = m.qty
-    $('date').value = m.date
-    $('note').value = m.note || ''
-    document.querySelectorAll('input[name="type"]').forEach(r=>{ r.checked = r.value===m.type })
-    $('staff-select').value = m.staff
-    $('submit-btn').textContent = 'Save'
-  }
+  function renderBalancesTable() {
+    const tbody = document.querySelector('#balances-table tbody')
+    tbody.innerHTML = ''
 
-  function deleteMovement(id){
-    if(!confirm('Delete this movement? This is permanent.')) return
-    const idx = movements.findIndex(m=>m.id===id); if(idx===-1) return
-    const before = JSON.parse(JSON.stringify(movements[idx]))
-    movements.splice(idx,1)
-    audit.push({op:'delete', at:new Date().toISOString(), id, before})
-    writeLS(); renderAll()
-    if(initSupabaseClient()){
-      supabaseClient.from('movements').delete().eq('id', id).then(()=>{})
-      supabaseClient.from('audit').insert([{op:'delete', obj_id:id, payload:before, at:new Date().toISOString()}]).then(()=>{})
-    }
-  }
-
-  function onSubmit(e){
-    e.preventDefault()
-    const type = document.querySelector('input[name="type"]:checked').value
-    const customer = $('customer').value.trim()
-    const qty = Math.floor(Number($('qty').value))
-    const date = $('date').value
-    const note = $('note').value.trim()
-    const staffName = $('staff-select').value
-    if(!staffName) return alert('Select or add a staff member')
-    if(!customer) return alert('Customer is required')
-    if(!Number.isFinite(qty) || qty < 1) return alert('Quantity must be a positive integer')
     const totals = calculateCustomerTotals()
-    const currentBalance = (totals[customer]?.issued||0) - (totals[customer]?.returned||0)
-    if(type==='return' && qty > currentBalance) return alert('Return would create negative balance — blocked')
+    const rows = Object.entries(totals).map(([customer, t]) => ({
+      customer,
+      issued: t.issued,
+      returned: t.returned,
+      balance: t.issued - t.returned
+    }))
 
-    if(editingId){
-      const idx = movements.findIndex(m=>m.id===editingId); if(idx===-1) return
-      const before = JSON.parse(JSON.stringify(movements[idx]))
-      movements[idx].date = date
-      movements[idx].customer = customer
-      movements[idx].type = type
-      movements[idx].qty = qty
-      movements[idx].note = note
-      movements[idx].staff = staffName
-      movements[idx].editedAt = new Date().toISOString()
-      audit.push({op:'edit', at:new Date().toISOString(), id:editingId, before, after:JSON.parse(JSON.stringify(movements[idx]))})
-      editingId = null
-      $('submit-btn').textContent = 'Record'
-      // push edit to supabase
-      if(initSupabaseClient()){
-        const rec = movements[idx]
-        supabaseClient.from('movements').upsert({id:rec.id, date:rec.date, recorded_at:rec.recordedAt, edited_at:rec.editedAt, customer:rec.customer, type:rec.type, qty:rec.qty, staff:rec.staff, note:rec.note}).then(()=>{})
-        supabaseClient.from('audit').insert([{op:'edit', obj_id:editingId, payload:{before,after:movements[idx]}, at:new Date().toISOString()}]).then(()=>{})
-      }
-    } else {
-      const id = Date.now()
-      const rec = {id, date, recordedAt:new Date().toISOString(), editedAt:null, customer, type, qty, staff:staffName, note}
-      movements.push(rec)
-      if(!customers.some(c=>c.toLowerCase()===customer.toLowerCase())) customers.push(customer)
-      audit.push({op:'create', at:new Date().toISOString(), id, after:JSON.parse(JSON.stringify(rec))})
-      // push create to supabase
-      if(initSupabaseClient()){
-        supabaseClient.from('movements').insert([{id:rec.id, date:rec.date, recorded_at:rec.recordedAt, edited_at:rec.editedAt, customer:rec.customer, type:rec.type, qty:rec.qty, staff:rec.staff, note:rec.note}]).then(()=>{})
-        supabaseClient.from('customers').upsert([{name:rec.customer}]).then(()=>{})
-        supabaseClient.from('audit').insert([{op:'create', obj_id:rec.id, payload:{after:rec}, at:new Date().toISOString()}]).then(()=>{})
-      }
+    rows.sort((a, b) => b.balance - a.balance || a.customer.localeCompare(b.customer))
+
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No balances to display.</td></tr>`
+      return
     }
 
-    writeLS(); renderAll()
-    // form reset behaviour
-    $('customer').value = ''
-    $('note').value = ''
-    $('qty').value = 1
-  }
+    const maxBalance = Math.max(...rows.map(r => Math.max(0, r.balance)), 1)
 
-  function onExportCSV(){
-    // export all movements (respecting filters)
-    const rows = [['Date','Recorded at','Customer','Type','Qty','Staff','Note','Edited at']]
-    const filterCustomer = $('filter-customer').value
-    const filterType = $('filter-type').value
-    const filterStaff = $('filter-staff').value
-    movements.slice().sort((a,b)=>b.id-a.id).forEach(m=>{
-      if(filterCustomer && m.customer!==filterCustomer) return
-      if(filterType && m.type!==filterType) return
-      if(filterStaff && m.staff!==filterStaff) return
-      rows.push([m.date,m.recordedAt,m.customer,m.type,m.qty,m.staff,(m.note||''),m.editedAt||''])
+    rows.forEach(r => {
+      const tr = document.createElement('tr')
+      const balanceClass = r.balance > 0 ? 'balance-positive' : (r.balance < 0 ? 'balance-negative' : 'balance-zero')
+      const pct = Math.max(0, Math.min(100, (r.balance / maxBalance) * 100))
+
+      tr.innerHTML = `
+        <td>${escapeHtml(r.customer)}</td>
+        <td>${r.issued}</td>
+        <td>${r.returned}</td>
+        <td class="${balanceClass}">${r.balance}</td>
+        <td>
+          <div class="visual-bar-container">
+            <div class="visual-bar" style="width: ${pct}%"></div>
+          </div>
+        </td>
+      `
+      tbody.appendChild(tr)
     })
-    const csv = rows.map(r=>r.map(csvEscape).join(',')).join('\n')
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'})
+  }
+
+  function renderStaffTable() {
+    const tbody = document.querySelector('#staff-table tbody')
+    tbody.innerHTML = ''
+
+    if (staff.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No rostered staff.</td></tr>`
+      return
+    }
+
+    staff.forEach(s => {
+      const tr = document.createElement('tr')
+      tr.innerHTML = `
+        <td>${escapeHtml(s.name)}</td>
+        <td>${escapeHtml(s.email || '—')}</td>
+        <td>
+          <button class="btn logout-btn remove-staff-btn">Remove</button>
+        </td>
+      `
+      
+      tr.querySelector('.remove-staff-btn').addEventListener('click', () => onRemoveStaff(s.id, s.name))
+      tbody.appendChild(tr)
+    })
+  }
+
+  // --- SELECTS & AUTOCOMPLETE POPULATION ---
+  function populateStaffSelect() {
+    const sel = document.getElementById('staff-select')
+    const val = sel.value
+    sel.innerHTML = '<option value="">— select staff —</option>'
+
+    staff.forEach(s => {
+      const o = document.createElement('option')
+      o.value = s.name
+      o.textContent = s.name
+      sel.appendChild(o)
+    })
+
+    if (val && staff.some(s => s.name === val)) {
+      sel.value = val
+    }
+  }
+
+  function populateFilters() {
+    const filterCustomer = document.getElementById('filter-customer')
+    const filterStaff = document.getElementById('filter-staff')
+
+    const savedCust = filterCustomer.value
+    const savedStaff = filterStaff.value
+
+    filterCustomer.innerHTML = '<option value="">All customers</option>'
+    filterStaff.innerHTML = '<option value="">All staff</option>'
+
+    const uniqueCustomers = Array.from(new Set(movements.map(m => m.customer))).sort()
+    uniqueCustomers.forEach(c => {
+      const o = document.createElement('option')
+      o.value = c
+      o.textContent = c
+      filterCustomer.appendChild(o)
+    })
+
+    staff.forEach(s => {
+      const o = document.createElement('option')
+      o.value = s.name
+      o.textContent = s.name
+      filterStaff.appendChild(o)
+    })
+
+    filterCustomer.value = savedCust
+    filterStaff.value = savedStaff
+  }
+
+  function populateCustomerDatalist() {
+    const dl = document.getElementById('customers-list')
+    dl.innerHTML = ''
+
+    const list = Array.from(new Set([
+      ...customers.map(c => c.name),
+      ...movements.map(m => m.customer)
+    ])).sort()
+
+    list.forEach(c => {
+      const o = document.createElement('option')
+      o.value = c
+      dl.appendChild(o)
+    })
+  }
+
+  // --- CSV EXPORT IMPLEMENTATION ---
+  function onExportCSV() {
+    const rows = [['Date', 'Recorded at', 'Customer', 'Type', 'Quantity', 'Staff', 'Notes', 'Edited at']]
+
+    const filterCustomer = document.getElementById('filter-customer').value
+    const filterType = document.getElementById('filter-type').value
+    const filterStaff = document.getElementById('filter-staff').value
+
+    const filtered = movements.filter(m => {
+      if (filterCustomer && m.customer !== filterCustomer) return false
+      if (filterType && m.type !== filterType) return false
+      if (filterStaff && m.staff !== filterStaff) return false
+      return true
+    })
+
+    filtered.forEach(m => {
+      rows.push([
+        m.date,
+        m.recorded_at,
+        m.customer,
+        m.type,
+        m.qty,
+        m.staff,
+        m.note || '',
+        m.edited_at || ''
+      ])
+    })
+
+    downloadCSV(rows, `movements-${new Date().toISOString().slice(0, 10)}.csv`)
+  }
+
+  function onExportBalancesCSV() {
+    const rows = [['Customer', 'Total Issued', 'Total Returned', 'Net Outstanding Balance']]
+    const totals = calculateCustomerTotals()
+
+    Object.entries(totals).forEach(([customer, t]) => {
+      rows.push([customer, t.issued, t.returned, t.issued - t.returned])
+    })
+
+    const headers = rows.shift()
+    rows.sort((a, b) => b[3] - a[3])
+    rows.unshift(headers)
+
+    downloadCSV(rows, `balances-${new Date().toISOString().slice(0, 10)}.csv`)
+  }
+
+  function downloadCSV(rows, filename) {
+    const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href=url; a.download = `movements-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
-  function onUndo(){
-    if(!audit.length) return alert('Nothing to undo')
-    const last = audit.pop()
-    if(last.op==='create'){
-      // remove the created record
-      movements = movements.filter(m=>m.id!==last.id)
-    } else if(last.op==='delete'){
-      // restore
-      movements.push(last.before)
-    } else if(last.op==='edit'){
-      const idx = movements.findIndex(m=>m.id===last.id)
-      if(idx!==-1) movements[idx] = last.before
-    } else if(last.op==='edit-customer'){
-      // revert customer rename
-      const before = last.before, after = last.after
-      customers = customers.map(c=> c===after? before : c)
-      movements.forEach(m=>{ if(m.customer===after) m.customer=before })
+  function csvEscape(v) {
+    const s = String(v || '')
+    if (s.includes(',') || s.includes('\n') || s.includes('"')) {
+      return '"' + s.replace(/"/g, '""') + '"'
     }
-    writeLS(); renderAll()
-  }
-
-  // Pull data from Supabase and merge into local state
-  async function pullAllFromSupabase(){
-    if(!initSupabaseClient()) return
-    try{
-      const {data:staffData, error:staffErr} = await supabaseClient.from('staff').select('name')
-      if(!staffErr && Array.isArray(staffData)){
-        const names = staffData.map(s=>s.name)
-        staff = Array.from(new Set([...staff, ...names]))
-      }
-
-      const {data:customersData, error:customersErr} = await supabaseClient.from('customers').select('name')
-      if(!customersErr && Array.isArray(customersData)){
-        const names = customersData.map(c=>c.name)
-        customers = Array.from(new Set([...customers, ...names]))
-      }
-
-      const {data:movData, error:movErr} = await supabaseClient.from('movements').select('*')
-      if(!movErr && Array.isArray(movData)){
-        movData.forEach(r=>{
-          const local = movements.find(m=>m.id===r.id)
-          const remoteEdited = r.edited_at || r.recorded_at
-          if(!local){
-            movements.push({
-              id: Number(r.id), date: r.date, recordedAt: r.recorded_at, editedAt: r.edited_at || null,
-              customer: r.customer, type: r.type, qty: Number(r.qty), staff: r.staff, note: r.note || ''
-            })
-          } else {
-            const localEdited = local.editedAt || local.recordedAt
-            if(new Date(remoteEdited) > new Date(localEdited)){
-              local.date = r.date; local.recordedAt = r.recorded_at; local.editedAt = r.edited_at || null; local.customer = r.customer; local.type = r.type; local.qty = Number(r.qty); local.staff = r.staff; local.note = r.note || ''
-            }
-          }
-        })
-      }
-
-      writeLS(); renderAll()
-    }catch(err){
-      console.warn('pullAllFromSupabase error', err)
-    }
-  }
-
-  // Utilities
-  function csvEscape(v){
-    const s = String(v||'')
-    if(s.includes(',')||s.includes('\n')||s.includes('"')) return '"'+s.replace(/"/g,'""')+'"'
     return s
   }
-  function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
-  // Expose minimal supabase hooks (not implemented) — placeholders
-  window.supabaseConfig = {url:SUPABASE_URL,key:SUPABASE_ANON_KEY}
+  // --- EVENT BINDINGS ---
+  function bindEvents() {
+    // Client-side Hash Router
+    window.addEventListener('hashchange', handleRouting)
+
+    // Auth screen buttons
+    document.getElementById('btn-toggle-signup').addEventListener('click', () => {
+      document.getElementById('login-form').classList.add('hidden')
+      document.getElementById('signup-form').classList.remove('hidden')
+      document.getElementById('auth-alert').classList.add('hidden')
+    })
+
+    document.getElementById('btn-toggle-login').addEventListener('click', () => {
+      document.getElementById('signup-form').classList.add('hidden')
+      document.getElementById('login-form').classList.remove('hidden')
+      document.getElementById('auth-alert').classList.add('hidden')
+    })
+
+    document.getElementById('btn-confirm-done').addEventListener('click', () => {
+      document.getElementById('confirm-email-msg').classList.add('hidden')
+      document.getElementById('login-form').classList.remove('hidden')
+    })
+
+    document.getElementById('login-form').addEventListener('submit', onLoginSubmit)
+    document.getElementById('signup-form').addEventListener('submit', onSignupSubmit)
+    document.getElementById('btn-logout').addEventListener('click', onLogoutClick)
+
+    // Form inputs
+    document.getElementById('movement-form').addEventListener('submit', onSubmitMovement)
+    document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit)
+    document.getElementById('staff-form').addEventListener('submit', onAddStaff)
+    
+    // Header staff selector sync
+    document.getElementById('staff-select').addEventListener('change', (e) => {
+      const val = e.target.value
+      selectedStaffName = val
+      const profileRoleEl = document.getElementById('user-staff-name')
+      if (val) {
+        profileRoleEl.textContent = `Operator: ${val}`
+      } else {
+        profileRoleEl.textContent = 'Select active operator'
+      }
+    })
+
+    // CSV buttons
+    document.getElementById('export-csv').addEventListener('click', onExportCSV)
+    document.getElementById('export-balances-csv').addEventListener('click', onExportBalancesCSV)
+
+    // Table filters
+    document.getElementById('filter-customer').addEventListener('change', renderMovementsTable)
+    document.getElementById('filter-type').addEventListener('change', renderMovementsTable)
+    document.getElementById('filter-staff').addEventListener('change', renderMovementsTable)
+
+    // Database Connection Error Retry
+    document.getElementById('retry-db-btn').addEventListener('click', async () => {
+      document.getElementById('view-error').classList.add('hidden')
+      showLoader('Retrying database connection...')
+      try {
+        await loadDataFromDB()
+        handleRouting()
+      } catch (err) {
+        console.error('Retry failed:', err)
+      }
+    })
+  }
+
+  function escapeHtml(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
 
 })();

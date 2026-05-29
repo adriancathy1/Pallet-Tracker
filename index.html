@@ -2,128 +2,383 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pallet Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-    <div class="app-panel">
-      <div class="top-metrics">
-        <div class="card metric issued">Total issued<br><span id="total-issued">0</span></div>
-        <div class="card metric returned">Total returned<br><span id="total-returned">0</span></div>
-        <div class="card metric net">Net outstanding<br><span id="net-outstanding">0</span></div>
-        <div class="card metric customers">Customers<br><span id="customer-count">0</span></div>
+  <!-- LOADING OVERLAY -->
+  <div id="view-loading" class="overlay-screen">
+    <div class="loader-container">
+      <div class="spinner"></div>
+      <p class="loader-text">Connecting to Database...</p>
+    </div>
+  </div>
+
+  <!-- CONNECTION ERROR SCREEN -->
+  <div id="view-error" class="overlay-screen hidden">
+    <div class="error-container">
+      <div class="error-icon">⚠️</div>
+      <h2>Connection Error</h2>
+      <p id="error-message">Unable to connect to the database. Please check your internet connection or database configuration.</p>
+      <button id="retry-db-btn" class="btn primary-btn">Retry Connection</button>
+    </div>
+  </div>
+
+  <!-- AUTHENTICATION SCREEN -->
+  <div id="view-login" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-header">
+        <span class="auth-logo">📦</span>
+        <h1>Pallet Tracker</h1>
+        <p class="auth-subtitle">Sign in to manage warehouse assets</p>
       </div>
 
-      <section id="entry" class="panel-section">
-        <div class="entry-header">
-          <div class="recording-as">
-            <label>Recording as</label>
-            <select id="staff-select" required>
-              <option value="">— select staff member —</option>
-            </select>
-            <small class="hint">Select a staff member before recording</small>
-          </div>
+      <div id="auth-alert" class="alert hidden"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-email">Email Address</label>
+          <input type="email" id="login-email" required placeholder="name@company.com">
         </div>
-        <h2 class="visually-hidden">Record Movement</h2>
-        <form id="movement-form" class="entry-form">
-    <section id="entry">
-      <h2>Record Movement</h2>
-      <form id="movement-form">
-        <label>
-          <input type="radio" name="type" value="issue" checked> Issue
-        </label>
-        <label>
-          <input type="radio" name="type" value="return"> Return
-        </label>
-
-        <div class="row">
-          <label>Customer
-            <input list="customers-list" id="customer" name="customer" required>
-            <datalist id="customers-list"></datalist>
-          </label>
-          <button type="button" id="edit-customer">Edit</button>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" required placeholder="••••••••">
         </div>
-
-        <label>Quantity
-          <input type="number" id="qty" name="qty" value="1" min="1" max="100000" required>
-        </label>
-
-        <label>Date
-          <input type="date" id="date" name="date">
-        </label>
-
-        <label>Note
-          <input type="text" id="note" name="note" placeholder="Optional">
-        </label>
-
-        <label>Staff
-          <select id="staff-select" required></select>
-        </label>
-        <div class="row">
-          <input type="text" id="new-staff-name" placeholder="New staff name">
-          <button type="button" id="add-staff">Add staff</button>
+        
+        <div class="auth-actions">
+          <button type="submit" id="btn-login" class="btn primary-btn">Sign In</button>
+          <button type="button" id="btn-toggle-signup" class="btn secondary-btn">Create Account</button>
         </div>
-
-        <div class="actions">
-          <button type="submit" id="submit-btn">Record</button>
-          <button type="button" id="export-csv">Export CSV</button>
-          <button type="button" id="undo-btn">Undo Last</button>
-        </div>
-          </div>
-          </form>
-        </section>
-
-        <section id="log" class="panel-section">
-          <div class="tabs">
-            <button class="tab active">Movement log</button>
-            <button class="tab">Customer balances</button>
-          </div>
-          <div class="filters">
-            <select id="filter-customer"><option value="">All customers</option></select>
-            <select id="filter-type"><option value="">All types</option><option value="issue">Issue</option><option value="return">Return</option></select>
-            <select id="filter-staff"><option value="">All staff</option></select>
-          </div>
-          <table id="movements-table">
-            <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Qty</th><th>Staff</th><th>Note</th><th>Actions</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
-
-        <section id="balances" class="panel-section">
-          <h3>Customer Balances</h3>
-          <table id="balances-table">
-            <thead><tr><th>Customer</th><th>Issued</th><th>Returned</th><th>Balance</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
-      </div>
-    </main>
       </form>
-    </section>
 
-    <section id="log">
-      <h2>Movement Log</h2>
-      <div class="filters">
-        <select id="filter-customer"><option value="">All customers</option></select>
-        <select id="filter-type"><option value="">All types</option><option value="issue">Issue</option><option value="return">Return</option></select>
-        <select id="filter-staff"><option value="">All staff</option></select>
+      <form id="signup-form" class="hidden">
+        <div class="form-group">
+          <label for="signup-email">Email Address</label>
+          <input type="email" id="signup-email" required placeholder="name@company.com">
+        </div>
+        <div class="form-group">
+          <label for="signup-password">Password</label>
+          <input type="password" id="signup-password" required placeholder="At least 6 characters">
+        </div>
+        
+        <div class="auth-actions">
+          <button type="submit" id="btn-signup" class="btn primary-btn">Register</button>
+          <button type="button" id="btn-toggle-login" class="btn secondary-btn">Back to Sign In</button>
+        </div>
+      </form>
+
+      <div id="confirm-email-msg" class="email-confirm-panel hidden">
+        <div class="confirm-icon">✉️</div>
+        <h3>Check your email</h3>
+        <p>We've sent a verification link to your email address. Please confirm your email, then sign in.</p>
+        <button id="btn-confirm-done" class="btn secondary-btn">Proceed to Sign In</button>
       </div>
-      <table id="movements-table">
-        <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Qty</th><th>Staff</th><th>Note</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
+    </div>
+  </div>
 
-    <section id="balances">
-      <h2>Customer Balances</h2>
-      <table id="balances-table">
-        <thead><tr><th>Customer</th><th>Issued</th><th>Returned</th><th>Balance</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-  </main>
+  <!-- APP INTERFACE -->
+  <div id="view-app" class="app-layout hidden">
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-icon">📦</span>
+        <span class="logo-text">Pallet Tracker</span>
+      </div>
+
+      <nav class="nav-links">
+        <a href="#/dashboard" id="nav-dashboard" class="nav-item">
+          <span class="nav-icon">📊</span> Dashboard
+        </a>
+        <a href="#/log-movement" id="nav-log-movement" class="nav-item">
+          <span class="nav-icon">➕</span> Record Movement
+        </a>
+        <a href="#/movements" id="nav-movements" class="nav-item">
+          <span class="nav-icon">📜</span> Movements Log
+        </a>
+        <a href="#/balances" id="nav-balances" class="nav-item">
+          <span class="nav-icon">⚖️</span> Customer Balances
+        </a>
+        <a href="#/staff" id="nav-staff" class="nav-item">
+          <span class="nav-icon">👥</span> Staff Members
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <span class="profile-avatar">👤</span>
+          <div class="profile-details">
+            <span id="user-email" class="profile-email">email@company.com</span>
+            <span id="user-staff-name" class="profile-role">Select active staff</span>
+          </div>
+        </div>
+        <button id="btn-logout" class="btn logout-btn">Sign Out</button>
+      </div>
+    </aside>
+
+    <!-- MAIN APP CONTENT -->
+    <main class="main-content">
+      <!-- HEADER -->
+      <header class="content-header">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="header-widget">
+          <label for="staff-select">Active Operator:</label>
+          <select id="staff-select" required>
+            <option value="">— select staff —</option>
+          </select>
+        </div>
+      </header>
+
+      <!-- PAGE: DASHBOARD -->
+      <section id="page-dashboard" class="app-page hidden">
+        <div class="metrics-grid">
+          <div class="card metric-card issued">
+            <div class="card-icon">📤</div>
+            <div class="card-info">
+              <h3>Total Issued</h3>
+              <p id="total-issued">0</p>
+            </div>
+          </div>
+          <div class="card metric-card returned">
+            <div class="card-icon">📥</div>
+            <div class="card-info">
+              <h3>Total Returned</h3>
+              <p id="total-returned">0</p>
+            </div>
+          </div>
+          <div class="card metric-card net">
+            <div class="card-icon">⚖️</div>
+            <div class="card-info">
+              <h3>Net Outstanding</h3>
+              <p id="net-outstanding">0</p>
+            </div>
+          </div>
+          <div class="card metric-card customers">
+            <div class="card-icon">🏢</div>
+            <div class="card-info">
+              <h3>Customers</h3>
+              <p id="customer-count">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-widgets">
+          <div class="card widget-card">
+            <h3>Recent Movements</h3>
+            <div class="table-container">
+              <table id="recent-movements-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Type</th>
+                    <th>Qty</th>
+                    <th>Staff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+            <div class="widget-footer">
+              <a href="#/movements" class="btn secondary-btn view-all-btn">View All Movements</a>
+            </div>
+          </div>
+
+          <div class="card widget-card">
+            <h3>Top Outstanding Customer Balances</h3>
+            <div class="table-container">
+              <table id="top-balances-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+            <div class="widget-footer">
+              <a href="#/balances" class="btn secondary-btn view-all-btn">View All Balances</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: RECORD MOVEMENT -->
+      <section id="page-log-movement" class="app-page hidden">
+        <div class="form-container-card card">
+          <h2 id="form-heading">Record Pallet Movement</h2>
+          <form id="movement-form">
+            <div class="form-row type-selection">
+              <label class="radio-label">
+                <input type="radio" name="type" value="issue" checked>
+                <div class="custom-radio issue-radio">📤 Issue Pallets</div>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="type" value="return">
+                <div class="custom-radio return-radio">📥 Return Pallets</div>
+              </label>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="customer">Customer Name</label>
+                <input list="customers-list" id="customer" name="customer" required placeholder="Enter or select customer">
+                <datalist id="customers-list"></datalist>
+              </div>
+
+              <div class="form-group">
+                <label for="qty">Quantity</label>
+                <input type="number" id="qty" name="qty" value="1" min="1" max="100000" required>
+              </div>
+
+              <div class="form-group">
+                <label for="date">Movement Date</label>
+                <input type="date" id="date" name="date" required>
+              </div>
+
+              <div class="form-group">
+                <label for="note">Reference / Notes (Optional)</label>
+                <input type="text" id="note" name="note" placeholder="e.g. PO, driver, delivery ref">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="submit-btn" class="btn primary-btn">Record Movement</button>
+              <button type="button" id="cancel-edit-btn" class="btn secondary-btn hidden">Cancel Edit</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- PAGE: MOVEMENTS LOG -->
+      <section id="page-movements" class="app-page hidden">
+        <div class="card log-card">
+          <div class="log-toolbar">
+            <div class="filters-container">
+              <div class="filter-group">
+                <label for="filter-customer">Customer</label>
+                <select id="filter-customer">
+                  <option value="">All customers</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filter-type">Type</label>
+                <select id="filter-type">
+                  <option value="">All types</option>
+                  <option value="issue">Issue</option>
+                  <option value="return">Return</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filter-staff">Recorded By</label>
+                <select id="filter-staff">
+                  <option value="">All staff</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="toolbar-actions">
+              <button id="export-csv" class="btn secondary-btn">📥 Export CSV</button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table id="movements-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Customer</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Recorded By</th>
+                  <th>Notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Filled dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: CUSTOMER BALANCES -->
+      <section id="page-balances" class="app-page hidden">
+        <div class="card balances-card">
+          <div class="toolbar-actions text-right margin-bottom">
+            <button id="export-balances-csv" class="btn secondary-btn">📥 Export Balances CSV</button>
+          </div>
+          <div class="table-container">
+            <table id="balances-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Total Issued</th>
+                  <th>Total Returned</th>
+                  <th>Net Balance</th>
+                  <th>Visual Scale</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Filled dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: STAFF MEMBERS -->
+      <section id="page-staff" class="app-page hidden">
+        <div class="staff-layout-grid">
+          <!-- Left side: List of staff -->
+          <div class="card staff-list-card">
+            <h3>Staff Roster</h3>
+            <div class="table-container">
+              <table id="staff-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Linked Email</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Right side: Add/Link form -->
+          <div class="card staff-form-card">
+            <h3>Add Staff Member</h3>
+            <form id="staff-form">
+              <div class="form-group">
+                <label for="new-staff-name">Name</label>
+                <input type="text" id="new-staff-name" required placeholder="e.g. John Doe">
+              </div>
+              <div class="form-group">
+                <label for="new-staff-email">Email Address (Optional)</label>
+                <input type="email" id="new-staff-email" placeholder="e.g. john@company.com">
+                <small class="form-hint">Linking an email matches their active profile automatically when signing in.</small>
+              </div>
+              <button type="submit" id="add-staff-btn" class="btn primary-btn full-width">Add Staff Member</button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
