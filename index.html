@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pallet Tracker</title>
+  <title>Antonello Produce Pallet Tracker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -34,8 +34,8 @@
     <div class="auth-card">
       <div class="auth-header">
         <span class="auth-logo">📦</span>
-        <h1>Pallet Tracker</h1>
-        <p class="auth-subtitle">Sign in to manage warehouse assets</p>
+        <h1>Antonello Produce</h1>
+        <p class="auth-subtitle">Pallet Tracker System</p>
       </div>
 
       <div id="auth-alert" class="alert hidden"></div>
@@ -87,7 +87,7 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <span class="logo-icon">📦</span>
-        <span class="logo-text">Pallet Tracker</span>
+        <span class="logo-text">Antonello Produce</span>
       </div>
 
       <nav class="nav-links">
@@ -102,6 +102,9 @@
         </a>
         <a href="#/balances" id="nav-balances" class="nav-item">
           <span class="nav-icon">⚖️</span> Customer Balances
+        </a>
+        <a href="#/customers" id="nav-customers" class="nav-item">
+          <span class="nav-icon">🏢</span> Customers Directory
         </a>
         <a href="#/staff" id="nav-staff" class="nav-item">
           <span class="nav-icon">👥</span> Staff Members
@@ -170,7 +173,7 @@
           <div class="card widget-card">
             <h3>Recent Movements</h3>
             <div class="table-container">
-              <table id="recent-movements-table">
+              <table id="recent-movements-table" class="responsive-table">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -193,7 +196,7 @@
           <div class="card widget-card">
             <h3>Top Outstanding Customer Balances</h3>
             <div class="table-container">
-              <table id="top-balances-table">
+              <table id="top-balances-table" class="responsive-table">
                 <thead>
                   <tr>
                     <th>Customer</th>
@@ -292,7 +295,7 @@
           </div>
 
           <div class="table-container">
-            <table id="movements-table">
+            <table id="movements-table" class="responsive-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -319,7 +322,7 @@
             <button id="export-balances-csv" class="btn secondary-btn">📥 Export Balances CSV</button>
           </div>
           <div class="table-container">
-            <table id="balances-table">
+            <table id="balances-table" class="responsive-table">
               <thead>
                 <tr>
                   <th>Customer</th>
@@ -337,6 +340,72 @@
         </div>
       </section>
 
+      <!-- PAGE: CUSTOMERS DIRECTORY -->
+      <section id="page-customers" class="app-page hidden">
+        <div class="staff-layout-grid">
+          <!-- Left side: List of customers -->
+          <div class="card staff-list-card">
+            <h3>Customers Directory</h3>
+            <div class="table-container">
+              <table id="customers-table" class="responsive-table">
+                <thead>
+                  <tr>
+                    <th>Customer Name</th>
+                    <th>Contact Person</th>
+                    <th>Contact Info</th>
+                    <th>Address</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Right side: Add/Edit Customer form -->
+          <div class="card staff-form-card">
+            <h3 id="customer-form-title">Add Customer</h3>
+            <form id="customer-form">
+              <div class="form-group">
+                <label for="customer-name">Customer Name</label>
+                <input type="text" id="customer-name" required placeholder="e.g. Acme Corp">
+              </div>
+              <div class="form-group">
+                <label for="customer-contact">Contact Person</label>
+                <input type="text" id="customer-contact" placeholder="e.g. Jane Smith">
+              </div>
+              <div class="form-group">
+                <label for="customer-email">Email Address</label>
+                <input type="email" id="customer-email" placeholder="e.g. contact@acme.com">
+              </div>
+              <div class="form-group">
+                <label for="customer-phone">Phone Number</label>
+                <input type="tel" id="customer-phone" placeholder="e.g. +1 555-0199">
+              </div>
+              <div class="form-group">
+                <label for="customer-address">Shipping Address</label>
+                <input type="text" id="customer-address" placeholder="e.g. 123 Industrial Rd">
+              </div>
+              <div class="form-group">
+                <label for="customer-notes">Notes / Special Instructions</label>
+                <input type="text" id="customer-notes" placeholder="e.g. Gate code: #4029">
+              </div>
+              <div class="form-group">
+                <label for="customer-status">Status</label>
+                <select id="customer-status" required>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <button type="submit" id="customer-submit-btn" class="btn primary-btn full-width">Add Customer</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
       <!-- PAGE: STAFF MEMBERS -->
       <section id="page-staff" class="app-page hidden">
         <div class="staff-layout-grid">
@@ -344,7 +413,7 @@
           <div class="card staff-list-card">
             <h3>Staff Roster</h3>
             <div class="table-container">
-              <table id="staff-table">
+              <table id="staff-table" class="responsive-table">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -361,7 +430,7 @@
 
           <!-- Right side: Add/Link form -->
           <div class="card staff-form-card">
-            <h3>Add Staff Member</h3>
+            <h3 id="staff-form-title">Add Staff Member</h3>
             <form id="staff-form">
               <div class="form-group">
                 <label for="new-staff-name">Name</label>
@@ -378,6 +447,77 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- MODAL: EDIT CUSTOMER -->
+  <div id="modal-edit-customer" class="overlay-screen hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Edit Customer</h2>
+        <button type="button" class="btn-close-modal" id="btn-close-customer-modal">✕</button>
+      </div>
+      <form id="modal-customer-form">
+        <div class="form-group">
+          <label for="modal-customer-name">Customer Name</label>
+          <input type="text" id="modal-customer-name" required placeholder="e.g. Acme Corp">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-contact">Contact Person</label>
+          <input type="text" id="modal-customer-contact" placeholder="e.g. Jane Smith">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-email">Email Address</label>
+          <input type="email" id="modal-customer-email" placeholder="e.g. contact@acme.com">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-phone">Phone Number</label>
+          <input type="tel" id="modal-customer-phone" placeholder="e.g. +1 555-0199">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-address">Shipping Address</label>
+          <input type="text" id="modal-customer-address" placeholder="e.g. 123 Industrial Rd">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-notes">Notes / Special Instructions</label>
+          <input type="text" id="modal-customer-notes" placeholder="e.g. Gate code: #4029">
+        </div>
+        <div class="form-group">
+          <label for="modal-customer-status">Status</label>
+          <select id="modal-customer-status" required>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary-btn" id="btn-cancel-customer-modal">Cancel</button>
+          <button type="submit" class="btn primary-btn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT STAFF -->
+  <div id="modal-edit-staff" class="overlay-screen hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Edit Staff Member</h2>
+        <button type="button" class="btn-close-modal" id="btn-close-staff-modal">✕</button>
+      </div>
+      <form id="modal-staff-form">
+        <div class="form-group">
+          <label for="modal-staff-name">Name</label>
+          <input type="text" id="modal-staff-name" required placeholder="e.g. John Doe">
+        </div>
+        <div class="form-group">
+          <label for="modal-staff-email">Email Address (Optional)</label>
+          <input type="email" id="modal-staff-email" placeholder="e.g. john@company.com">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary-btn" id="btn-cancel-staff-modal">Cancel</button>
+          <button type="submit" class="btn primary-btn">Save Changes</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>

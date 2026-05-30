@@ -1,4 +1,4 @@
-// Pallet Tracker - vanilla JS SPA implementation
+// Antonello Produce Pallet Tracker - vanilla JS SPA implementation
 (function() {
   // Configuration
   const SUPABASE_URL = (window.supabaseConfig && window.supabaseConfig.url) || ''
@@ -13,6 +13,8 @@
   let isAuthenticated = false
   let selectedStaffName = ''
   let editingId = null
+  let editingCustomerId = null
+  let editingStaffId = null
 
   // Page Routing Configuration
   const routes = {
@@ -20,6 +22,7 @@
     '#/log-movement': 'page-log-movement',
     '#/movements': 'page-movements',
     '#/balances': 'page-balances',
+    '#/customers': 'page-customers',
     '#/staff': 'page-staff'
   }
 
@@ -120,6 +123,7 @@
       '#/log-movement': editingId ? 'Edit Movement' : 'Record Movement',
       '#/movements': 'Movements Log',
       '#/balances': 'Customer Balances',
+      '#/customers': 'Customers Directory',
       '#/staff': 'Staff Members'
     }
     document.getElementById('page-title').textContent = titles[hash] || 'Dashboard'
@@ -131,6 +135,8 @@
       renderMovementsTable()
     } else if (hash === '#/balances') {
       renderBalancesTable()
+    } else if (hash === '#/customers') {
+      renderCustomersTable()
     } else if (hash === '#/staff') {
       renderStaffTable()
     }
@@ -375,7 +381,15 @@
         .select('*')
         .order('recorded_at', { ascending: false })
       if (movementsErr) throw movementsErr
-      movements = movementsData || []
+      
+      // Map customer name from customer_id in movements
+      movements = (movementsData || []).map(m => {
+        const cust = customers.find(c => c.id === m.customer_id)
+        return {
+          ...m,
+          customer: cust ? cust.name : 'Unknown Customer'
+        }
+      })
 
       // Update inputs & selects
       populateStaffSelect()
@@ -432,17 +446,55 @@
       const { error } = await supabaseClient
         .from('staff')
         .insert({ name, email: email || null })
-      
       if (error) throw error
 
       document.getElementById('staff-form').reset()
-      
-      // Database reload verification
       await loadDataFromDB()
-      handleRouting()
+      renderStaffTable()
     } catch (error) {
-      console.error('Add staff failed:', error)
-      alert('Failed to register staff: ' + (error.message || 'Duplicate staff name or email.'))
+      console.error('Staff creation failed:', error)
+      alert('Failed to save staff member: ' + (error.message || 'Duplicate staff name or email.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  function startEditStaff(s) {
+    editingStaffId = s.id
+    document.getElementById('modal-staff-name').value = s.name
+    document.getElementById('modal-staff-email').value = s.email || ''
+    document.getElementById('modal-edit-staff').classList.remove('hidden')
+  }
+
+  function closeStaffModal() {
+    editingStaffId = null
+    document.getElementById('modal-staff-form').reset()
+    document.getElementById('modal-edit-staff').classList.add('hidden')
+  }
+
+  async function onSaveStaffEdit(e) {
+    e.preventDefault()
+    if (!editingStaffId) return
+
+    const name = document.getElementById('modal-staff-name').value.trim()
+    const email = document.getElementById('modal-staff-email').value.trim()
+
+    if (!name) return alert('Staff name is required')
+
+    showLoader('Saving staff changes...')
+    try {
+      const { error } = await supabaseClient
+        .from('staff')
+        .update({ name, email: email || null })
+        .eq('id', editingStaffId)
+      if (error) throw error
+
+      closeStaffModal()
+      await loadDataFromDB()
+      renderStaffTable()
+    } catch (error) {
+      console.error('Failed to save staff edit:', error)
+      alert('Failed to save staff changes: ' + (error.message || 'Database error.'))
     } finally {
       hideLoader()
     }
@@ -466,6 +518,134 @@
     } catch (error) {
       console.error('Delete staff failed:', error)
       alert('Failed to remove staff: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  // --- CUSTOMER MUTATION HANDLERS ---
+  async function onSubmitCustomer(e) {
+    e.preventDefault()
+    const name = document.getElementById('customer-name').value.trim()
+    const contactPerson = document.getElementById('customer-contact').value.trim()
+    const email = document.getElementById('customer-email').value.trim()
+    const phone = document.getElementById('customer-phone').value.trim()
+    const address = document.getElementById('customer-address').value.trim()
+    const notes = document.getElementById('customer-notes').value.trim()
+    const status = document.getElementById('customer-status').value
+
+    if (!name) return alert('Enter a customer name')
+
+    showLoader('Creating new customer in DB...')
+    try {
+      const customerData = {
+        name,
+        contact_person: contactPerson || null,
+        email: email || null,
+        phone: phone || null,
+        address: address || null,
+        notes: notes || null,
+        status: status || 'Active'
+      }
+
+      const { error } = await supabaseClient
+        .from('customers')
+        .insert(customerData)
+      if (error) throw error
+
+      document.getElementById('customer-form').reset()
+      await loadDataFromDB()
+      renderCustomersTable()
+    } catch (error) {
+      console.error('Customer creation failed:', error)
+      alert('Failed to save customer: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  function startEditCustomer(c) {
+    editingCustomerId = c.id
+    document.getElementById('modal-customer-name').value = c.name
+    document.getElementById('modal-customer-contact').value = c.contact_person || ''
+    document.getElementById('modal-customer-email').value = c.email || ''
+    document.getElementById('modal-customer-phone').value = c.phone || ''
+    document.getElementById('modal-customer-address').value = c.address || ''
+    document.getElementById('modal-customer-notes').value = c.notes || ''
+    document.getElementById('modal-customer-status').value = c.status || 'Active'
+
+    document.getElementById('modal-edit-customer').classList.remove('hidden')
+  }
+
+  function closeCustomerModal() {
+    editingCustomerId = null
+    document.getElementById('modal-customer-form').reset()
+    document.getElementById('modal-edit-customer').classList.add('hidden')
+  }
+
+  async function onSaveCustomerEdit(e) {
+    e.preventDefault()
+    if (!editingCustomerId) return
+
+    const name = document.getElementById('modal-customer-name').value.trim()
+    const contactPerson = document.getElementById('modal-customer-contact').value.trim()
+    const email = document.getElementById('modal-customer-email').value.trim()
+    const phone = document.getElementById('modal-customer-phone').value.trim()
+    const address = document.getElementById('modal-customer-address').value.trim()
+    const notes = document.getElementById('modal-customer-notes').value.trim()
+    const status = document.getElementById('modal-customer-status').value
+
+    if (!name) return alert('Customer name is required')
+
+    showLoader('Saving customer changes...')
+    try {
+      const { error } = await supabaseClient
+        .from('customers')
+        .update({
+          name,
+          contact_person: contactPerson || null,
+          email: email || null,
+          phone: phone || null,
+          address: address || null,
+          notes: notes || null,
+          status: status || 'Active'
+        })
+        .eq('id', editingCustomerId)
+      if (error) throw error
+
+      closeCustomerModal()
+      await loadDataFromDB()
+      renderCustomersTable()
+    } catch (error) {
+      console.error('Failed to save customer edit:', error)
+      alert('Failed to save customer changes: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onDeleteCustomer(id, name) {
+    const hasMovements = movements.some(m => m.customer_id === id)
+    if (hasMovements) {
+      alert(`Cannot delete customer "${name}" because they have historical pallet movements recorded. Consider setting their status to "Inactive" to archive them instead.`)
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete customer "${name}"? This will permanently remove them from the database.`)) return
+
+    showLoader('Deleting customer from DB...')
+    try {
+      const { error } = await supabaseClient
+        .from('customers')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+
+      await loadDataFromDB()
+      renderCustomersTable()
+    } catch (error) {
+      console.error('Delete customer failed:', error)
+      alert('Failed to delete customer: ' + (error.message || 'Database error.'))
     } finally {
       hideLoader()
     }
@@ -497,12 +677,21 @@
     showLoader(editingId ? 'Saving updates to DB...' : 'Writing record to DB...')
     try {
       // 1. Add customer directory entry if new
-      const customerExists = customers.some(c => c.name.toLowerCase() === customerName.toLowerCase())
-      if (!customerExists) {
-        const { error: custErr } = await supabaseClient
+      let customerId = null
+      const matchedCustomer = customers.find(c => c.name.toLowerCase() === customerName.toLowerCase())
+      if (!matchedCustomer) {
+        const { data: newCust, error: custErr } = await supabaseClient
           .from('customers')
           .insert({ name: customerName })
-        if (custErr) console.warn('Customer upsert non-critical warning:', custErr)
+          .select()
+        if (custErr) throw custErr
+        if (newCust && newCust.length > 0) {
+          customerId = newCust[0].id
+        } else {
+          throw new Error('Failed to create new customer profile.')
+        }
+      } else {
+        customerId = matchedCustomer.id
       }
 
       // 2. Perform DB insert or update
@@ -511,7 +700,7 @@
           .from('movements')
           .update({
             date,
-            customer: customerName,
+            customer_id: customerId,
             type,
             qty,
             note: note || null,
@@ -526,7 +715,7 @@
           .insert({
             date,
             recorded_at: new Date().toISOString(),
-            customer: customerName,
+            customer_id: customerId,
             type,
             qty,
             staff: selectedStaffName,
@@ -653,11 +842,11 @@
         const tr = document.createElement('tr')
         const badge = m.type === 'issue' ? '<span class="badge badge-issue">Issue</span>' : '<span class="badge badge-return">Return</span>'
         tr.innerHTML = `
-          <td>${m.date}</td>
-          <td>${escapeHtml(m.customer)}</td>
-          <td>${badge}</td>
-          <td>${m.qty}</td>
-          <td>${escapeHtml(m.staff)}</td>
+          <td data-label="Date">${m.date}</td>
+          <td data-label="Customer">${escapeHtml(m.customer)}</td>
+          <td data-label="Type">${badge}</td>
+          <td data-label="Qty">${m.qty}</td>
+          <td data-label="Staff">${escapeHtml(m.staff)}</td>
         `
         recentTbody.appendChild(tr)
       })
@@ -678,8 +867,8 @@
         const tr = document.createElement('tr')
         const balanceClass = item.balance > 0 ? 'balance-positive' : (item.balance < 0 ? 'balance-negative' : 'balance-zero')
         tr.innerHTML = `
-          <td>${escapeHtml(item.customer)}</td>
-          <td class="${balanceClass}">${item.balance}</td>
+          <td data-label="Customer">${escapeHtml(item.customer)}</td>
+          <td data-label="Balance" class="${balanceClass}">${item.balance}</td>
         `
         topBalancesTbody.appendChild(tr)
       })
@@ -712,13 +901,13 @@
       const editIndicator = m.edited_at ? `<span class="edit-indicator" title="Edited on ${new Date(m.edited_at).toLocaleString()}">✎</span>` : ''
 
       tr.innerHTML = `
-        <td>${m.date}${editIndicator}</td>
-        <td>${escapeHtml(m.customer)}</td>
-        <td>${badge}</td>
-        <td>${m.qty}</td>
-        <td>${escapeHtml(m.staff)}</td>
-        <td>${escapeHtml(m.note || '')}</td>
-        <td>
+        <td data-label="Date">${m.date}${editIndicator}</td>
+        <td data-label="Customer">${escapeHtml(m.customer)}</td>
+        <td data-label="Type">${badge}</td>
+        <td data-label="Qty">${m.qty}</td>
+        <td data-label="Recorded By">${escapeHtml(m.staff)}</td>
+        <td data-label="Notes">${escapeHtml(m.note || '')}</td>
+        <td data-label="Actions">
           <div class="row-actions">
             <button class="btn secondary-btn edit-btn">Edit</button>
             <button class="btn logout-btn delete-btn">Delete</button>
@@ -760,11 +949,11 @@
       const pct = Math.max(0, Math.min(100, (r.balance / maxBalance) * 100))
 
       tr.innerHTML = `
-        <td>${escapeHtml(r.customer)}</td>
-        <td>${r.issued}</td>
-        <td>${r.returned}</td>
-        <td class="${balanceClass}">${r.balance}</td>
-        <td>
+        <td data-label="Customer">${escapeHtml(r.customer)}</td>
+        <td data-label="Total Issued">${r.issued}</td>
+        <td data-label="Total Returned">${r.returned}</td>
+        <td data-label="Net Balance" class="${balanceClass}">${r.balance}</td>
+        <td data-label="Visual Scale">
           <div class="visual-bar-container">
             <div class="visual-bar" style="width: ${pct}%"></div>
           </div>
@@ -786,14 +975,60 @@
     staff.forEach(s => {
       const tr = document.createElement('tr')
       tr.innerHTML = `
-        <td>${escapeHtml(s.name)}</td>
-        <td>${escapeHtml(s.email || '—')}</td>
-        <td>
-          <button class="btn logout-btn remove-staff-btn">Remove</button>
+        <td data-label="Name">${escapeHtml(s.name)}</td>
+        <td data-label="Linked Email">${escapeHtml(s.email || '—')}</td>
+        <td data-label="Actions">
+          <div class="row-actions">
+            <button class="btn secondary-btn edit-staff-btn">Edit</button>
+            <button class="btn logout-btn remove-staff-btn">Remove</button>
+          </div>
         </td>
       `
       
+      tr.querySelector('.edit-staff-btn').addEventListener('click', () => startEditStaff(s))
       tr.querySelector('.remove-staff-btn').addEventListener('click', () => onRemoveStaff(s.id, s.name))
+      tbody.appendChild(tr)
+    })
+  }
+
+  function renderCustomersTable() {
+    const tbody = document.querySelector('#customers-table tbody')
+    tbody.innerHTML = ''
+
+    if (customers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No customers registered.</td></tr>`
+      return
+    }
+
+    customers.forEach(c => {
+      const tr = document.createElement('tr')
+      const statusBadge = c.status === 'Active' 
+        ? '<span class="badge badge-active">Active</span>' 
+        : '<span class="badge badge-inactive">Inactive</span>'
+
+      const contactInfo = `
+        <div class="contact-info-cell">
+          <span class="contact-email" title="Email">${escapeHtml(c.email || '—')}</span>
+          <span class="contact-phone" title="Phone">${escapeHtml(c.phone || '—')}</span>
+        </div>
+      `
+
+      tr.innerHTML = `
+        <td data-label="Customer Name"><strong>${escapeHtml(c.name)}</strong></td>
+        <td data-label="Contact Person">${escapeHtml(c.contact_person || '—')}</td>
+        <td data-label="Contact Info">${contactInfo}</td>
+        <td data-label="Address">${escapeHtml(c.address || '—')}</td>
+        <td data-label="Status">${statusBadge}</td>
+        <td data-label="Actions">
+          <div class="row-actions">
+            <button class="btn secondary-btn edit-customer-btn">Edit</button>
+            <button class="btn logout-btn delete-customer-btn">Delete</button>
+          </div>
+        </td>
+      `
+
+      tr.querySelector('.edit-customer-btn').addEventListener('click', () => startEditCustomer(c))
+      tr.querySelector('.delete-customer-btn').addEventListener('click', () => onDeleteCustomer(c.id, c.name))
       tbody.appendChild(tr)
     })
   }
@@ -849,10 +1084,9 @@
     const dl = document.getElementById('customers-list')
     dl.innerHTML = ''
 
-    const list = Array.from(new Set([
-      ...customers.map(c => c.name),
-      ...movements.map(m => m.customer)
-    ])).sort()
+    // Recommended active customer names only
+    const activeNames = customers.filter(c => c.status !== 'Inactive').map(c => c.name)
+    const list = Array.from(new Set(activeNames)).sort()
 
     list.forEach(c => {
       const o = document.createElement('option')
@@ -957,6 +1191,16 @@
     document.getElementById('movement-form').addEventListener('submit', onSubmitMovement)
     document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit)
     document.getElementById('staff-form').addEventListener('submit', onAddStaff)
+    document.getElementById('customer-form').addEventListener('submit', onSubmitCustomer)
+
+    // Modal Edit Form submits & cancel/close clicks
+    document.getElementById('modal-customer-form').addEventListener('submit', onSaveCustomerEdit)
+    document.getElementById('btn-close-customer-modal').addEventListener('click', closeCustomerModal)
+    document.getElementById('btn-cancel-customer-modal').addEventListener('click', closeCustomerModal)
+
+    document.getElementById('modal-staff-form').addEventListener('submit', onSaveStaffEdit)
+    document.getElementById('btn-close-staff-modal').addEventListener('click', closeStaffModal)
+    document.getElementById('btn-cancel-staff-modal').addEventListener('click', closeStaffModal)
     
     // Header staff selector sync
     document.getElementById('staff-select').addEventListener('change', (e) => {
