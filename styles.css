@@ -1,28 +1,28 @@
 /* Modern Outfit font-family and design system variables */
 :root {
-  --bg-primary: #0b0f19;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
+  --bg-primary: #f8fafc;     /* Slate-50 - very light blue-gray */
+  --bg-secondary: #ffffff;   /* Pure white cards and sidebar */
+  --bg-tertiary: #f1f5f9;    /* Slate-100 - hover fields and backgrounds */
   
-  --text-main: #f3f4f6;
-  --text-muted: #9ca3af;
-  --text-dark: #111827;
+  --text-main: #0f172a;      /* Slate-900 - dark slate for readable text */
+  --text-muted: #64748b;     /* Slate-500 - secondary text */
+  --text-dark: #0f172a;
   
   --accent: #10b981;        /* Emerald green */
   --accent-hover: #059669;
-  --accent-light: rgba(16, 185, 129, 0.15);
+  --accent-light: rgba(16, 185, 129, 0.08);
   
   --blue-brand: #3b82f6;     /* Indigo-ish Blue */
   --blue-hover: #2563eb;
-  --blue-light: rgba(59, 130, 246, 0.15);
+  --blue-light: rgba(59, 130, 246, 0.08);
   
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  --danger-light: rgba(239, 68, 68, 0.1);
+  --danger-light: rgba(239, 68, 68, 0.06);
   
-  --border-color: rgba(255, 255, 255, 0.08);
-  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.15), 0 2px 4px -2px rgba(0, 0, 0, 0.15);
+  --border-color: rgba(15, 23, 42, 0.08);  /* slate-900 with 0.08 opacity */
+  --shadow-lg: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.04), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
 }
 
 * {
@@ -89,8 +89,8 @@ body {
 }
 
 .secondary-btn:hover {
-  background-color: #374151;
-  border-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--border-color);
+  border-color: rgba(15, 23, 42, 0.15);
 }
 
 .logout-btn {
@@ -116,13 +116,13 @@ body {
 .alert-danger {
   background-color: var(--danger-light);
   border-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  color: #b91c1c;
 }
 
 .alert-success {
   background-color: var(--accent-light);
   border-color: rgba(16, 185, 129, 0.2);
-  color: #a7f3d0;
+  color: #047857;
 }
 
 /* LOADING & ERROR SCREENS */
@@ -132,7 +132,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(11, 15, 25, 0.9);
+  background-color: rgba(248, 250, 252, 0.85);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -178,7 +178,7 @@ body {
 .error-container h2 {
   font-size: 22px;
   margin-bottom: 12px;
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 .error-container p {
@@ -364,11 +364,11 @@ body {
 
 .nav-item:hover {
   color: var(--text-main);
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: rgba(15, 23, 42, 0.04);
 }
 
 .nav-item.active {
-  color: #ffffff;
+  color: var(--blue-brand);
   background-color: var(--blue-light);
   border-left: 3px solid var(--blue-brand);
 }
@@ -580,13 +580,13 @@ body {
 .radio-label input:checked + .issue-radio {
   background-color: var(--blue-light);
   border-color: var(--blue-brand);
-  color: #60a5fa;
+  color: var(--blue-brand);
 }
 
 .radio-label input:checked + .return-radio {
   background-color: var(--accent-light);
   border-color: var(--accent);
-  color: #34d399;
+  color: var(--accent);
 }
 
 .form-grid {
@@ -634,11 +634,11 @@ td {
   padding: 14px 16px;
   font-size: 14px;
   color: var(--text-main);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-color);
 }
 
 tbody tr:hover {
-  background-color: rgba(255, 255, 255, 0.01);
+  background-color: var(--bg-tertiary);
 }
 
 /* Table Row Badges */
@@ -652,12 +652,12 @@ tbody tr:hover {
 
 .badge-issue {
   background-color: var(--blue-light);
-  color: #60a5fa;
+  color: var(--blue-brand);
 }
 
 .badge-return {
   background-color: var(--accent-light);
-  color: #34d399;
+  color: var(--accent);
 }
 
 .edit-indicator {
@@ -818,12 +818,12 @@ tbody tr:hover {
 /* STATUS BADGES */
 .badge-active {
   background-color: var(--accent-light);
-  color: #34d399; /* Emerald green */
+  color: var(--accent);
 }
 
 .badge-inactive {
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #fbbf24; /* Amber yellow */
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #b45309; /* dark amber */
 }
 
 /* Table layout helper for customer contact info */
@@ -949,7 +949,7 @@ tbody tr:hover {
 
   .responsive-table td {
     border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border-color);
     position: relative;
     padding: 10px 12px 10px 45%;
     text-align: right;
