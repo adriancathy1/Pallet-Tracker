@@ -109,6 +109,9 @@
         <a href="#/staff" id="nav-staff" class="nav-item">
           <span class="nav-icon">👥</span> Staff Members
         </a>
+        <a href="#/whitelist" id="nav-whitelist" class="nav-item hidden">
+          <span class="nav-icon">🛡️</span> Whitelist Admin
+        </a>
       </nav>
 
       <div class="sidebar-footer">
@@ -442,6 +445,49 @@
                 <small class="form-hint">Linking an email matches their active profile automatically when signing in.</small>
               </div>
               <button type="submit" id="add-staff-btn" class="btn primary-btn full-width">Add Staff Member</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: WHITELIST MANAGEMENT -->
+      <section id="page-whitelist" class="app-page hidden">
+        <div class="staff-layout-grid">
+          <!-- Left side: List of whitelisted users -->
+          <div class="card staff-list-card">
+            <h3>Whitelisted Users</h3>
+            <div class="table-container">
+              <table id="whitelist-table" class="responsive-table">
+                <thead>
+                  <tr>
+                    <th>Email Address</th>
+                    <th>Role</th>
+                    <th>Added On</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Right side: Add user form -->
+          <div class="card staff-form-card">
+            <h3 id="whitelist-form-title">Add to Whitelist</h3>
+            <form id="whitelist-form">
+              <div class="form-group">
+                <label for="new-whitelist-email">Email Address</label>
+                <input type="email" id="new-whitelist-email" required placeholder="user@company.com">
+              </div>
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="new-whitelist-admin">
+                  <span>Grant Administrator Privileges</span>
+                </label>
+              </div>
+              <button type="submit" id="add-whitelist-btn" class="btn primary-btn full-width">Add to Whitelist</button>
             </form>
           </div>
         </div>

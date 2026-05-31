@@ -11,6 +11,8 @@
   let customers = []
   let activeSession = null
   let isAuthenticated = false
+  let isAdmin = false
+  let whitelist = []
   let selectedStaffName = ''
   let editingId = null
   let editingCustomerId = null
@@ -23,7 +25,8 @@
     '#/movements': 'page-movements',
     '#/balances': 'page-balances',
     '#/customers': 'page-customers',
-    '#/staff': 'page-staff'
+    '#/staff': 'page-staff',
+    '#/whitelist': 'page-whitelist'
   }
 
   // --- INITIALIZATION ---
@@ -95,6 +98,12 @@
       return
     }
 
+    // Admin-only route guard
+    if (hash === '#/whitelist' && !isAdmin) {
+      window.location.hash = '#/dashboard'
+      return
+    }
+
     showView('view-app')
 
     const pageId = routes[hash] || 'page-dashboard'
@@ -124,7 +133,8 @@
       '#/movements': 'Movements Log',
       '#/balances': 'Customer Balances',
       '#/customers': 'Customers Directory',
-      '#/staff': 'Staff Members'
+      '#/staff': 'Staff Members',
+      '#/whitelist': 'Whitelist Management'
     }
     document.getElementById('page-title').textContent = titles[hash] || 'Dashboard'
 
@@ -139,6 +149,8 @@
       renderCustomersTable()
     } else if (hash === '#/staff') {
       renderStaffTable()
+    } else if (hash === '#/whitelist' && isAdmin) {
+      renderWhitelistTable()
     }
   }
 
@@ -176,12 +188,18 @@
     if (!session || !session.user) {
       console.log('[Auth Event] No active user session. Routing to login.');
       isAuthenticated = false;
+      isAdmin = false;
       activeSession = null;
       isVerifying = false;
       lastCheckedEmail = '';
       showView('view-login');
       window.location.hash = '#/login';
       hideLoader();
+
+      const navWhitelistEl = document.getElementById('nav-whitelist');
+      if (navWhitelistEl) {
+        navWhitelistEl.classList.add('hidden');
+      }
       return;
     }
 
@@ -199,11 +217,23 @@
 
     try {
       showLoader('Verifying account access...');
-      const isAllowed = await checkWhitelist(email);
-      console.log(`[Auth Event] Whitelist check result for "${email}":`, isAllowed);
+      const whitelistEntry = await checkWhitelist(email);
+      console.log(`[Auth Event] Whitelist check result for "${email}":`, whitelistEntry);
 
-      if (isAllowed) {
+      if (whitelistEntry) {
         isAuthenticated = true;
+        isAdmin = whitelistEntry.is_admin || false;
+
+        // Show/hide whitelist nav item
+        const navWhitelistEl = document.getElementById('nav-whitelist');
+        if (navWhitelistEl) {
+          if (isAdmin) {
+            navWhitelistEl.classList.remove('hidden');
+          } else {
+            navWhitelistEl.classList.add('hidden');
+          }
+        }
+
         try {
           console.log(`[Auth Event] Whitelist verified for "${email}". Syncing app database...`);
           await loadDataFromDB();
@@ -222,6 +252,12 @@
       } else {
         console.warn(`[Auth Event] Access denied: "${email}" is not in the allowed_users table.`);
         isAuthenticated = false;
+        isAdmin = false;
+
+        const navWhitelistEl = document.getElementById('nav-whitelist');
+        if (navWhitelistEl) {
+          navWhitelistEl.classList.add('hidden');
+        }
         
         console.log('[Auth Event] Attempting to sign out unwhitelisted user session...');
         try {
@@ -244,6 +280,14 @@
       }
     } catch (err) {
       console.error('[Auth Event] Uncaught error during auth state verification:', err);
+      isAuthenticated = false;
+      isAdmin = false;
+
+      const navWhitelistEl = document.getElementById('nav-whitelist');
+      if (navWhitelistEl) {
+        navWhitelistEl.classList.add('hidden');
+      }
+
       const alertEl = document.getElementById('auth-alert');
       if (alertEl) {
         alertEl.className = 'alert alert-danger';
@@ -268,7 +312,7 @@
       console.log('[checkWhitelist] Querying allowed_users table...');
       const queryPromise = supabaseClient
         .from('allowed_users')
-        .select('email')
+        .select('email, is_admin')
         .eq('email', email.toLowerCase());
 
       console.log('[checkWhitelist] Awaiting Supabase promise resolution...');
@@ -281,15 +325,13 @@
         if (error.code === '42P01') {
           alert("The whitelist table 'allowed_users' does not exist in your Supabase database. Please create it first.");
         }
-        return false;
+        return null;
       }
       
-      const isAllowed = data && data.length > 0;
-      console.log(`[checkWhitelist] User "${email}" allowed status:`, isAllowed);
-      return isAllowed;
+      return data && data.length > 0 ? data[0] : null;
     } catch (err) {
       console.error('[checkWhitelist] Failed to check email whitelist due to uncaught exception:', err);
-      return false;
+      return null;
     }
   }
 
@@ -366,6 +408,18 @@
         .order('name', { ascending: true })
       if (staffErr) throw staffErr
       staff = staffData || []
+
+      // 1b. Fetch whitelist (allowed_users) if user is an admin
+      if (isAdmin) {
+        const { data: whitelistData, error: whitelistErr } = await supabaseClient
+          .from('allowed_users')
+          .select('*')
+          .order('email', { ascending: true })
+        if (whitelistErr) throw whitelistErr
+        whitelist = whitelistData || []
+      } else {
+        whitelist = []
+      }
 
       // 2. Fetch customers directory
       const { data: customersData, error: customersErr } = await supabaseClient
@@ -794,6 +848,122 @@
     window.location.hash = '#/movements'
   }
 
+  // --- WHITELIST MANAGEMENT OPERATORS ---
+  function renderWhitelistTable() {
+    const tbody = document.querySelector('#whitelist-table tbody')
+    tbody.innerHTML = ''
+
+    if (whitelist.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No whitelisted users found.</td></tr>`
+      return
+    }
+
+    const currentEmail = activeSession && activeSession.user && activeSession.user.email
+
+    whitelist.forEach(u => {
+      const tr = document.createElement('tr')
+      const isCurrentUser = currentEmail && u.email.toLowerCase() === currentEmail.toLowerCase()
+      
+      const roleBadge = u.is_admin 
+        ? '<span class="badge badge-issue">Admin</span>' 
+        : '<span class="badge badge-return">Operator</span>'
+
+      const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'
+
+      // Admin toggle button state
+      const adminToggleText = u.is_admin ? 'Demote to Operator' : 'Promote to Admin'
+      const adminToggleClass = u.is_admin ? 'secondary-btn' : 'primary-btn'
+
+      tr.innerHTML = `
+        <td data-label="Email Address"><strong>${escapeHtml(u.email)}</strong> ${isCurrentUser ? '<span style="color:var(--accent); font-weight:600;">(You)</span>' : ''}</td>
+        <td data-label="Role">${roleBadge}</td>
+        <td data-label="Added On">${createdDate}</td>
+        <td data-label="Actions">
+          <div class="row-actions">
+            <button class="btn ${adminToggleClass} toggle-admin-btn" ${isCurrentUser ? 'disabled' : ''}>${adminToggleText}</button>
+            <button class="btn logout-btn remove-whitelist-btn" ${isCurrentUser ? 'disabled' : ''}>Remove</button>
+          </div>
+        </td>
+      `
+
+      if (!isCurrentUser) {
+        tr.querySelector('.toggle-admin-btn').addEventListener('click', () => onToggleAdmin(u.email, u.is_admin))
+        tr.querySelector('.remove-whitelist-btn').addEventListener('click', () => onRemoveFromWhitelist(u.email))
+      }
+
+      tbody.appendChild(tr)
+    })
+  }
+
+  async function onAddWhitelist(e) {
+    e.preventDefault()
+    const email = document.getElementById('new-whitelist-email').value.trim().toLowerCase()
+    const isAdminChecked = document.getElementById('new-whitelist-admin').checked
+
+    if (!email) return alert('Enter a valid email address')
+
+    showLoader('Adding email to whitelist...')
+    try {
+      const { error } = await supabaseClient
+        .from('allowed_users')
+        .insert({ email, is_admin: isAdminChecked })
+      if (error) throw error
+
+      document.getElementById('whitelist-form').reset()
+      await loadDataFromDB()
+      renderWhitelistTable()
+    } catch (error) {
+      console.error('Failed to add to whitelist:', error)
+      alert('Failed to whitelist email: ' + (error.message || 'User may already be whitelisted.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onToggleAdmin(email, currentIsAdmin) {
+    const newIsAdmin = !currentIsAdmin
+    const actionText = newIsAdmin ? 'promote this user to Administrator' : 'demote this user to Operator'
+    if (!confirm(`Are you sure you want to ${actionText}?`)) return
+
+    showLoader('Updating user role...')
+    try {
+      const { error } = await supabaseClient
+        .from('allowed_users')
+        .update({ is_admin: newIsAdmin })
+        .eq('email', email)
+      if (error) throw error
+
+      await loadDataFromDB()
+      renderWhitelistTable()
+    } catch (error) {
+      console.error('Failed to update admin status:', error)
+      alert('Failed to update role: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
+  async function onRemoveFromWhitelist(email) {
+    if (!confirm(`Are you sure you want to remove "${email}" from the whitelist? They will lose access to the application immediately.`)) return
+
+    showLoader('Removing user from whitelist...')
+    try {
+      const { error } = await supabaseClient
+        .from('allowed_users')
+        .delete()
+        .eq('email', email)
+      if (error) throw error
+
+      await loadDataFromDB()
+      renderWhitelistTable()
+    } catch (error) {
+      console.error('Failed to remove user from whitelist:', error)
+      alert('Failed to remove user: ' + (error.message || 'Database error.'))
+    } finally {
+      hideLoader()
+    }
+  }
+
   // --- CALCULATIONS ---
   function calculateCustomerTotals() {
     const map = {}
@@ -1192,6 +1362,7 @@
     document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit)
     document.getElementById('staff-form').addEventListener('submit', onAddStaff)
     document.getElementById('customer-form').addEventListener('submit', onSubmitCustomer)
+    document.getElementById('whitelist-form').addEventListener('submit', onAddWhitelist)
 
     // Modal Edit Form submits & cancel/close clicks
     document.getElementById('modal-customer-form').addEventListener('submit', onSaveCustomerEdit)

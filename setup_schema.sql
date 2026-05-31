@@ -11,12 +11,14 @@ DROP TABLE IF EXISTS staff CASCADE;
 DROP TABLE IF EXISTS customers CASCADE;
 DROP TABLE IF EXISTS allowed_users CASCADE;
 DROP FUNCTION IF EXISTS is_whitelisted CASCADE;
+DROP FUNCTION IF EXISTS is_admin CASCADE;
 
 -- 2. CREATE TABLES
 
 -- A. Email Whitelist Table
 CREATE TABLE allowed_users (
   email TEXT PRIMARY KEY,
+  is_admin BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -88,6 +90,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 
+    FROM allowed_users
+    WHERE email = LOWER(auth.jwt() ->> 'email')
+      AND is_admin = TRUE
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 -- 4. ENABLE ROW LEVEL SECURITY (RLS) ON ALL TABLES
 ALTER TABLE allowed_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
@@ -97,12 +114,21 @@ ALTER TABLE movements ENABLE ROW LEVEL SECURITY;
 -- 5. DEFINE ROW LEVEL SECURITY POLICIES
 
 -- Policies for allowed_users
--- Users can only check if their own email exists in the whitelist (for privacy)
-CREATE POLICY "Users can check their own whitelist status" 
+-- Users can check their own whitelist status, and admins can select all
+CREATE POLICY "Users can check their own whitelist status or admins can select all" 
 ON allowed_users
 FOR SELECT 
 TO authenticated
-USING (email = LOWER(auth.jwt() ->> 'email'));
+USING (email = LOWER(auth.jwt() ->> 'email') OR is_admin());
+
+CREATE POLICY "Admins can insert whitelisted users" 
+ON allowed_users FOR INSERT TO authenticated WITH CHECK (is_admin());
+
+CREATE POLICY "Admins can update whitelisted users" 
+ON allowed_users FOR UPDATE TO authenticated USING (is_admin()) WITH CHECK (is_admin());
+
+CREATE POLICY "Admins can delete whitelisted users" 
+ON allowed_users FOR DELETE TO authenticated USING (is_admin());
 
 -- Policies for staff
 CREATE POLICY "Whitelisted users can read staff roster" 
@@ -148,5 +174,5 @@ ON movements FOR DELETE TO authenticated USING (is_whitelisted());
 -- Replace the email below with your email address to whitelist yourself immediately.
 -- Run this statement to unlock the application for your account.
 -- ============================================================================
-INSERT INTO allowed_users (email) VALUES ('massimonodin@gmail.com');
-INSERT INTO allowed_users (email) VALUES ('adriancathy1@gmail.com');
+INSERT INTO allowed_users (email, is_admin) VALUES ('massimonodin@gmail.com', true);
+INSERT INTO allowed_users (email, is_admin) VALUES ('adriancathy1@gmail.com', true);
